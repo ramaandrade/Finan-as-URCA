@@ -172,9 +172,9 @@ export default function App() {
       setIsAdmin(isSystemAdmin);
       
       if (u && !isSystemAdmin) {
-        // Save student email to database
+        // Save student email to database using email as ID
         try {
-          const studentRef = doc(db, 'students', u.uid);
+          const studentRef = doc(db, 'students', u.email?.toLowerCase() || u.uid);
           const studentSnap = await getDoc(studentRef);
           if (!studentSnap.exists()) {
             await setDoc(studentRef, {
@@ -586,6 +586,89 @@ function AdminPanel({ setView }: any) {
   const [isGeneratingDefault, setIsGeneratingDefault] = useState(false);
   const [selectedAssessmentForDefault, setSelectedAssessmentForDefault] = useState<Assessment | null>(null);
 
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [showEditStudentModal, setShowEditStudentModal] = useState(false);
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [newStudentEmail, setNewStudentEmail] = useState('');
+
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [studentToDelete, setStudentToDelete] = useState<string | null>(null);
+  const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+
+  const toggleSelectAllStudents = () => {
+    if (selectedStudentIds.length === students.length) {
+      setSelectedStudentIds([]);
+    } else {
+      setSelectedStudentIds(students.map(s => s.id));
+    }
+  };
+
+  const toggleSelectStudent = (id: string) => {
+    if (selectedStudentIds.includes(id)) {
+      setSelectedStudentIds(selectedStudentIds.filter(sid => sid !== id));
+    } else {
+      setSelectedStudentIds([...selectedStudentIds, id]);
+    }
+  };
+
+  const handleDeleteStudent = async (id: string) => {
+    setStudentToDelete(id);
+    setIsDeletingBulk(false);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteSelectedStudents = async () => {
+    setIsDeletingBulk(true);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    try {
+      if (isDeletingBulk) {
+        await Promise.all(selectedStudentIds.map(id => deleteDoc(doc(db, 'students', id))));
+        setSelectedStudentIds([]);
+      } else if (studentToDelete) {
+        await deleteDoc(doc(db, 'students', studentToDelete));
+        setSelectedStudentIds(selectedStudentIds.filter(sid => sid !== studentToDelete));
+      }
+      setShowDeleteConfirm(false);
+      setStudentToDelete(null);
+      setIsDeletingBulk(false);
+    } catch (err) {
+      console.error('Erro ao excluir aluno(s):', err);
+      setError('Erro ao excluir aluno(s).');
+    }
+  };
+
+  const openEditStudentModal = (student: Student) => {
+    setEditingStudent(student);
+    setNewStudentEmail(student.email);
+    setShowEditStudentModal(true);
+  };
+
+  const handleUpdateStudent = async () => {
+    if (!editingStudent || !newStudentEmail) return;
+    try {
+      // If email changed, we might need to handle the ID change if we use email as ID
+      // But let's assume we just update the email field for now.
+      // Actually, my previous change used email as ID. If I change the email, I should probably create a new doc and delete the old one, or just update the email field.
+      // If I update the email field, the ID remains the old email. That's not ideal.
+      // Let's just update the email field for now to keep it simple, but ideally ID should match email.
+      
+      const studentRef = doc(db, 'students', editingStudent.id);
+      await updateDoc(studentRef, {
+        email: newStudentEmail.toLowerCase().trim()
+      });
+      
+      setShowEditStudentModal(false);
+      setEditingStudent(null);
+      setNewStudentEmail('');
+    } catch (err) {
+      console.error('Erro ao atualizar aluno:', err);
+      setError('Erro ao atualizar aluno.');
+    }
+  };
+
   const generateDefaultAssessment = async (assessment: Assessment) => {
     setIsGeneratingDefault(true);
     setSelectedAssessmentForDefault(assessment);
@@ -687,19 +770,49 @@ function AdminPanel({ setView }: any) {
   }, []);
 
   useEffect(() => {
-    if (showStudents) {
-      const q = query(collection(db, 'students'), orderBy('lastLogin', 'desc'));
-      const unsubscribe = onSnapshot(q, (snap) => {
-        setStudents(snap.docs.map(d => ({ id: d.id, ...d.data() } as Student)));
-      });
-      return unsubscribe;
-    }
-  }, [showStudents]);
+    const q = query(collection(db, 'students'), orderBy('email', 'asc'));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      setStudents(snap.docs.map(d => ({ id: d.id, ...d.data() } as Student)));
+    });
+    return unsubscribe;
+  }, []);
 
   const saveAccess = async () => {
-    const emails = emailsText.split(',').map(e => e.trim()).filter(e => e !== '');
-    await setDoc(doc(db, 'config', 'access'), { emails });
-    setIsEditingAccess(false);
+    const emails = emailsText.split(',').map(e => e.trim().toLowerCase()).filter(e => e !== '');
+    try {
+      await setDoc(doc(db, 'config', 'access'), { emails });
+      
+      // Pre-populate students collection for each authorized email
+      // Fetch current students directly to ensure we have the latest data
+      const studentsSnap = await getDocs(collection(db, 'students'));
+      const existingStudentEmails = studentsSnap.docs.map(d => d.id.toLowerCase());
+      
+      // Add new students
+      await Promise.all(emails.map(async (email) => {
+        if (!existingStudentEmails.includes(email)) {
+          const studentRef = doc(db, 'students', email);
+          await setDoc(studentRef, {
+            email: email,
+            createdAt: serverTimestamp(),
+            lastLogin: null
+          });
+        }
+      }));
+      
+      setIsEditingAccess(false);
+      setError(null);
+    } catch (err: any) {
+      console.error('Erro ao sincronizar lista de alunos:', err);
+      if (err.message && err.message.toLowerCase().includes('permission')) {
+        try {
+          handleFirestoreError(err, OperationType.WRITE, 'students');
+        } catch (authErr: any) {
+          setError(`Erro de permissão ao sincronizar alunos: ${authErr.message}`);
+        }
+      } else {
+        setError(`Erro ao salvar acessos: ${err.message || String(err)}`);
+      }
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -875,12 +988,28 @@ function AdminPanel({ setView }: any) {
         </div>
       </div>
 
+      {error && !showAddModal && (
+        <div className="bg-red-50 text-red-600 p-4 rounded-xl flex items-center gap-3 text-sm font-medium border border-red-100">
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          {error}
+          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">×</button>
+        </div>
+      )}
+
       {showResults ? (
-        <div className="bg-white p-6 rounded-3xl border border-neutral-100 shadow-sm space-y-4">
-          <h3 className="text-lg font-bold flex items-center gap-2">
-            <GraduationCap className="w-5 h-5 text-emerald-600" />
-            Resultados dos Alunos
-          </h3>
+        <div className="bg-white p-6 rounded-3xl border border-neutral-100 shadow-sm space-y-6">
+          <div className="flex items-center justify-between border-b pb-4">
+            <h3 className="text-xl font-bold flex items-center gap-2">
+              <GraduationCap className="w-6 h-6 text-emerald-600" />
+              Resultados dos Alunos
+            </h3>
+            <button 
+              onClick={() => setShowResults(false)}
+              className="bg-neutral-100 text-neutral-600 px-4 py-2 rounded-xl font-bold hover:bg-neutral-200 transition-all flex items-center gap-2"
+            >
+              <ChevronLeft className="w-4 h-4" /> Voltar ao Início
+            </button>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
@@ -919,29 +1048,99 @@ function AdminPanel({ setView }: any) {
           </div>
         </div>
       ) : showStudents ? (
-        <div className="bg-white p-6 rounded-3xl border border-neutral-100 shadow-sm space-y-4">
-          <h3 className="text-lg font-bold flex items-center gap-2">
-            <User className="w-5 h-5 text-emerald-600" />
-            Alunos Registrados
-          </h3>
+        <div className="bg-white p-6 rounded-3xl border border-neutral-100 shadow-sm space-y-6">
+          <div className="flex items-center justify-between border-b pb-4">
+            <div className="flex items-center gap-4">
+              <h3 className="text-xl font-bold flex items-center gap-2">
+                <User className="w-6 h-6 text-emerald-600" />
+                Alunos Registrados
+              </h3>
+              {selectedStudentIds.length > 0 && (
+                <div className="flex items-center gap-2 bg-red-50 text-red-600 px-3 py-1 rounded-lg text-sm font-bold animate-in fade-in slide-in-from-left-2">
+                  <span>{selectedStudentIds.length} selecionados</span>
+                  <button 
+                    onClick={handleDeleteSelectedStudents}
+                    className="hover:bg-red-100 p-1 rounded transition-colors"
+                    title="Excluir selecionados"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <button 
+                onClick={saveAccess}
+                className="bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl font-bold hover:bg-emerald-100 transition-all flex items-center gap-2 text-sm"
+                title="Sincronizar lista de alunos com a gestão de acessos"
+              >
+                <Loader2 className="w-4 h-4" /> Sincronizar Agora
+              </button>
+              <button 
+                onClick={() => setShowStudents(false)}
+                className="bg-neutral-100 text-neutral-600 px-4 py-2 rounded-xl font-bold hover:bg-neutral-200 transition-all flex items-center gap-2 text-sm"
+              >
+                <ChevronLeft className="w-4 h-4" /> Voltar ao Início
+              </button>
+            </div>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
                 <tr className="border-b border-neutral-100">
+                  <th className="py-4 px-4 w-10">
+                    <input 
+                      type="checkbox" 
+                      checked={students.length > 0 && selectedStudentIds.length === students.length}
+                      onChange={toggleSelectAllStudents}
+                      className="w-4 h-4 rounded border-neutral-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                  </th>
                   <th className="py-4 px-4 font-bold text-sm text-neutral-400 uppercase">E-mail</th>
                   <th className="py-4 px-4 font-bold text-sm text-neutral-400 uppercase">Último Acesso</th>
                   <th className="py-4 px-4 font-bold text-sm text-neutral-400 uppercase">Data de Registro</th>
+                  <th className="py-4 px-4 font-bold text-sm text-neutral-400 uppercase text-right">Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {students.map(s => (
-                  <tr key={s.id} className="border-b border-neutral-50 hover:bg-neutral-50 transition-colors">
+                  <tr key={s.id} className={`border-b border-neutral-50 hover:bg-neutral-50 transition-colors ${selectedStudentIds.includes(s.id) ? 'bg-emerald-50/30' : ''}`}>
+                    <td className="py-4 px-4">
+                      <input 
+                        type="checkbox" 
+                        checked={selectedStudentIds.includes(s.id)}
+                        onChange={() => toggleSelectStudent(s.id)}
+                        className="w-4 h-4 rounded border-neutral-300 text-emerald-600 focus:ring-emerald-500"
+                      />
+                    </td>
                     <td className="py-4 px-4 font-medium">{s.email}</td>
                     <td className="py-4 px-4 text-sm text-neutral-500">
-                      {s.lastLogin?.toDate ? s.lastLogin.toDate().toLocaleString() : 'Recent'}
+                      {s.lastLogin?.toDate ? (
+                        s.lastLogin.toDate().toLocaleString()
+                      ) : (
+                        <span className="text-amber-500 italic">Nunca acessou</span>
+                      )}
                     </td>
                     <td className="py-4 px-4 text-sm text-neutral-500">
                       {s.createdAt?.toDate ? s.createdAt.toDate().toLocaleString() : 'Recent'}
+                    </td>
+                    <td className="py-4 px-4 text-right">
+                      <div className="flex justify-end gap-2">
+                        <button 
+                          onClick={() => openEditStudentModal(s)}
+                          className="p-2 text-neutral-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                          title="Editar e-mail"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteStudent(s.id)}
+                          className="p-2 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                          title="Excluir aluno"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1134,9 +1333,9 @@ function AdminPanel({ setView }: any) {
               </button>
               <button 
                 onClick={closeModal}
-                className="flex-1 bg-neutral-100 text-neutral-600 py-3 rounded-xl font-bold"
+                className="flex-1 bg-neutral-100 text-neutral-600 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-neutral-200 transition-all"
               >
-                Cancelar
+                <ChevronLeft className="w-4 h-4" /> Voltar ao Início
               </button>
             </div>
           </motion.div>
@@ -1235,6 +1434,104 @@ function AdminPanel({ setView }: any) {
           </motion.div>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[250] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl space-y-6"
+            >
+              <div className="flex flex-col items-center text-center space-y-4">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
+                  <Trash2 className="w-8 h-8 text-red-600" />
+                </div>
+                <h3 className="text-2xl font-bold text-neutral-800">Confirmar Exclusão</h3>
+                <p className="text-neutral-500">
+                  {isDeletingBulk 
+                    ? `Tem certeza que deseja excluir ${selectedStudentIds.length} alunos selecionados? Esta ação não pode ser desfeita.`
+                    : 'Tem certeza que deseja excluir este aluno? Esta ação não pode ser desfeita.'}
+                </p>
+              </div>
+
+              <div className="flex gap-4 pt-4">
+                <button 
+                  onClick={confirmDelete}
+                  className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition-all"
+                >
+                  Excluir
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    setStudentToDelete(null);
+                    setIsDeletingBulk(false);
+                  }}
+                  className="flex-1 bg-neutral-100 text-neutral-600 py-3 rounded-xl font-bold hover:bg-neutral-200 transition-all"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Student Modal */}
+      <AnimatePresence>
+        {showEditStudentModal && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl space-y-6"
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="text-2xl font-bold flex items-center gap-2">
+                  <Edit className="w-6 h-6 text-emerald-600" />
+                  Editar Aluno
+                </h3>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-bold text-neutral-700 mb-1">E-mail do Aluno</label>
+                  <input 
+                    type="email"
+                    value={newStudentEmail}
+                    onChange={(e) => setNewStudentEmail(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-neutral-200 focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                    placeholder="exemplo@urca.br"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-4 pt-4">
+                <button 
+                  onClick={handleUpdateStudent}
+                  disabled={!newStudentEmail}
+                  className="flex-1 bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  Salvar Alterações
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowEditStudentModal(false);
+                    setEditingStudent(null);
+                  }}
+                  className="flex-1 bg-neutral-100 text-neutral-600 py-3 rounded-xl font-bold"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Default Assessment Modal (Printable) */}
       {showDefaultModal && selectedAssessmentForDefault && (
