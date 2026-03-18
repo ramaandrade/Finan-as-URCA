@@ -300,7 +300,10 @@ export default function App() {
       2. Use estudos de caso reais, exemplos práticos de finanças e análises profundas baseadas no texto fornecido.
       3. Cada questão deve ter 4 opções (A, B, C, D).
       4. Forneça uma explicação detalhada para a resposta correta.
-      5. O nível de dificuldade deve ser desafiador.`;
+      5. O nível de dificuldade deve ser desafiador.
+      6. Certifique-se de que esta avaliação seja ÚNICA e DIFERENTE de versões anteriores, explorando diversos ângulos do texto base.
+      
+      ID DA SESSÃO: ${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
       const response = await genAI.models.generateContent({
         model: "gemini-3-flash-preview",
