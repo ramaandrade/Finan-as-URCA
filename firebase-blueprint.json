@@ -1,0 +1,73 @@
+{
+  "entities": {
+    "UserAccess": {
+      "title": "User Access",
+      "description": "List of authorized student emails.",
+      "type": "object",
+      "properties": {
+        "emails": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of authorized emails."
+        }
+      },
+      "required": ["emails"]
+    },
+    "Assessment": {
+      "title": "Assessment",
+      "description": "Assessment details and base knowledge.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "baseText": { "type": "string", "description": "The content extracted from PDF/TXT." },
+        "timeLimit": { "type": "integer", "description": "Time in minutes." },
+        "status": { "type": "string", "enum": ["Available", "Unavailable"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "baseText", "timeLimit", "status"]
+    },
+    "Result": {
+      "title": "Result",
+      "description": "Student assessment performance.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "assessmentId": { "type": "string" },
+        "score": { "type": "number" },
+        "answers": { "type": "array" },
+        "summary": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "assessmentId", "score", "answers", "timestamp"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Student profile information.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "lastLogin": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/config/access": {
+      "schema": "UserAccess",
+      "description": "Global configuration for authorized emails."
+    },
+    "/assessments/{assessmentId}": {
+      "schema": "Assessment",
+      "description": "Collection of assessments."
+    },
+    "/results/{resultId}": {
+      "schema": "Result",
+      "description": "Collection of student results."
+    },
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "Collection of registered students."
+    }
+  }
+}

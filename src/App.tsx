@@ -1,0 +1,1583 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  LayoutDashboard, 
+  BookOpen, 
+  User, 
+  LogOut, 
+  Plus, 
+  Trash2, 
+  Edit, 
+  FileText, 
+  ChevronRight, 
+  ChevronLeft, 
+  CheckCircle, 
+  AlertCircle,
+  Download,
+  Loader2,
+  ShieldCheck,
+  GraduationCap,
+  TrendingUp,
+  Wallet,
+  Coins,
+  Eye,
+  Printer
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { GoogleGenAI, Type } from "@google/genai";
+import { 
+  collection, 
+  doc, 
+  getDoc, 
+  getDocs, 
+  setDoc, 
+  addDoc, 
+  deleteDoc, 
+  updateDoc, 
+  query, 
+  where, 
+  onSnapshot,
+  serverTimestamp,
+  orderBy
+} from 'firebase/firestore';
+import { 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword,
+  signOut, 
+  onAuthStateChanged,
+  User as FirebaseUser 
+} from 'firebase/auth';
+import { db, auth } from './firebase';
+import * as pdfjsLib from 'pdfjs-dist';
+
+// PDF.js worker setup
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+
+// Firestore Error Handling
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+// Types
+interface Assessment {
+  id: string;
+  title: string;
+  baseText: string;
+  timeLimit: number;
+  status: 'Available' | 'Unavailable';
+  createdAt: any;
+  updatedAt?: any;
+}
+
+interface Question {
+  question: string;
+  options: string[];
+  correctIndex: number;
+  explanation: string;
+}
+
+interface Result {
+  id: string;
+  email: string;
+  assessmentId: string;
+  assessmentTitle: string;
+  score: number;
+  answers: number[];
+  questions: Question[];
+  timestamp: any;
+}
+
+interface Student {
+  id: string;
+  email: string;
+  lastLogin: any;
+  createdAt: any;
+}
+
+// Gemini Setup
+const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+
+export default function App() {
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [authorizedEmails, setAuthorizedEmails] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<'home' | 'admin' | 'student' | 'test' | 'result'>('home');
+  const [currentAssessment, setCurrentAssessment] = useState<Assessment | null>(null);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [studentAnswers, setStudentAnswers] = useState<number[]>([]);
+  const [testResult, setTestResult] = useState<Result | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [isInvalidated, setIsInvalidated] = useState(false);
+
+  // Auth Listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      setUser(u);
+      const email = u?.email?.toLowerCase();
+      const isSystemAdmin = email === 'admin@urca.br' || email === 'rama.lucas@urca.br';
+      setIsAdmin(isSystemAdmin);
+      
+      if (u && !isSystemAdmin) {
+        // Save student email to database
+        try {
+          const studentRef = doc(db, 'students', u.uid);
+          const studentSnap = await getDoc(studentRef);
+          if (!studentSnap.exists()) {
+            await setDoc(studentRef, {
+              email: u.email,
+              createdAt: serverTimestamp(),
+              lastLogin: serverTimestamp()
+            });
+          } else {
+            await updateDoc(studentRef, {
+              lastLogin: serverTimestamp()
+            });
+          }
+        } catch (err) {
+          console.error('Erro ao salvar dados do aluno:', err);
+        }
+      }
+      
+      setLoading(false);
+    });
+    return unsubscribe;
+  }, []);
+
+  // Load Authorized Emails
+  useEffect(() => {
+    const unsubscribe = onSnapshot(doc(db, 'config', 'access'), (docSnap) => {
+      if (docSnap.exists()) {
+        setAuthorizedEmails(docSnap.data().emails || []);
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  // Security Lock: Detect when user leaves the page during test
+  useEffect(() => {
+    if (view !== 'test' || isAdmin) return;
+
+    const handleSecurityViolation = (e: Event) => {
+      if (e.type === 'blur' || document.visibilityState === 'hidden') {
+        setIsInvalidated(true);
+        setView('student');
+        setCurrentAssessment(null);
+        setQuestions([]);
+        setStudentAnswers([]);
+        setTimeLeft(0);
+        setError('AVISO DE SEGURANÇA: Você saiu da página da avaliação. O teste foi invalidado por motivos de segurança e você precisará iniciar um novo processo.');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleSecurityViolation);
+    window.addEventListener('blur', handleSecurityViolation);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleSecurityViolation);
+      window.removeEventListener('blur', handleSecurityViolation);
+    };
+  }, [view, isAdmin]);
+
+  // Prevent accidental tab closing during test
+  useEffect(() => {
+    if (view !== 'test' || isAdmin) return;
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [view, isAdmin]);
+
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
+
+    try {
+      setError(null);
+      // Check if authorized (unless admin)
+      const lowerEmail = email.toLowerCase();
+      const isSystemAdmin = lowerEmail === 'admin@urca.br' || lowerEmail === 'rama.lucas@urca.br';
+      if (!isSystemAdmin && !authorizedEmails.includes(email)) {
+        throw new Error('E-mail não autorizado para acesso.');
+      }
+
+      try {
+        await signInWithEmailAndPassword(auth, email, password);
+      } catch (err: any) {
+        if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
+          // Try to create the user if authorized and using the default password
+          if (password === '123456') {
+            await createUserWithEmailAndPassword(auth, email, password);
+          } else {
+            throw new Error('Credenciais inválidas.');
+          }
+        } else {
+          throw err;
+        }
+      }
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const handleLogout = async () => {
+    await signOut(auth);
+    setView('home');
+  };
+
+  const startAssessment = async (assessment: Assessment) => {
+    setLoading(true);
+    setError(null);
+    setIsInvalidated(false);
+    try {
+      const prompt = `Você é um professor universitário de Finanças na URCA. 
+      Sua tarefa é elaborar uma avaliação rigorosa de 5 questões de múltipla escolha para o aluno logado.
+      
+      BASE DE CONHECIMENTO:
+      ${assessment.baseText}
+      
+      DIRETRIZES:
+      1. Gere exatamente 5 questões.
+      2. Use estudos de caso reais, exemplos práticos de finanças e análises profundas baseadas no texto fornecido.
+      3. Cada questão deve ter 4 opções (A, B, C, D).
+      4. Forneça uma explicação detalhada para a resposta correta.
+      5. O nível de dificuldade deve ser desafiador.`;
+
+      const response = await genAI.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ parts: [{ text: prompt }] }],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                question: { type: Type.STRING },
+                options: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING }
+                },
+                correctIndex: { type: Type.INTEGER },
+                explanation: { type: Type.STRING }
+              },
+              required: ["question", "options", "correctIndex", "explanation"]
+            }
+          }
+        }
+      });
+
+      const generatedQuestions = JSON.parse(response.text);
+
+      if (!Array.isArray(generatedQuestions) || generatedQuestions.length === 0) {
+        throw new Error('Falha ao gerar questões válidas.');
+      }
+
+      setQuestions(generatedQuestions);
+      setCurrentAssessment(assessment);
+      setCurrentQuestionIndex(0);
+      setStudentAnswers(new Array(generatedQuestions.length).fill(-1));
+      setTimeLeft(assessment.timeLimit * 60);
+      setView('test');
+    } catch (err: any) {
+      console.error('Erro ao gerar a prova:', err);
+      setError('Erro ao gerar a prova com IA. Por favor, tente novamente.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const finishTest = async () => {
+    if (!currentAssessment || !user) return;
+
+    let score = 0;
+    questions.forEach((q, i) => {
+      if (studentAnswers[i] === q.correctIndex) score += 1;
+    });
+
+    const resultData: Omit<Result, 'id'> = {
+      email: user.email!,
+      assessmentId: currentAssessment.id,
+      assessmentTitle: currentAssessment.title,
+      score: score * 0.4,
+      answers: studentAnswers,
+      questions: questions,
+      timestamp: serverTimestamp()
+    };
+
+    const docRef = await addDoc(collection(db, 'results'), resultData);
+    setTestResult({ ...resultData, id: docRef.id });
+    setView('result');
+  };
+
+  // Timer Effect
+  useEffect(() => {
+    if (view === 'test' && timeLeft > 0) {
+      const timer = setInterval(() => setTimeLeft(t => t - 1), 1000);
+      return () => clearInterval(timer);
+    } else if (view === 'test' && timeLeft === 0) {
+      finishTest();
+    }
+  }, [view, timeLeft]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-neutral-50 flex items-center justify-center">
+        <Loader2 className="w-12 h-12 text-emerald-600 animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-neutral-50 text-neutral-900 font-sans selection:bg-emerald-100">
+      {/* Navigation */}
+      <nav className="border-b border-neutral-200 bg-white sticky top-0 z-50 no-print">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2 cursor-pointer" onClick={() => setView('home')}>
+            <TrendingUp className="w-8 h-8 text-emerald-600" />
+            <span className="text-xl font-bold tracking-tight">Finanças - URCA</span>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            {user ? (
+              <>
+                <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-neutral-100 rounded-full text-sm font-medium">
+                  <User className="w-4 h-4" />
+                  {user.email}
+                </div>
+                {isAdmin && (
+                  <button 
+                    onClick={() => setView('admin')}
+                    className="p-2 hover:bg-neutral-100 rounded-lg transition-colors"
+                    title="Painel Admin"
+                  >
+                    <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                  </button>
+                )}
+                <button 
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 text-sm font-semibold text-red-600 hover:bg-red-50 px-3 py-2 rounded-lg transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Sair
+                </button>
+              </>
+            ) : (
+              <button 
+                onClick={() => setView('home')}
+                className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-emerald-700 transition-colors"
+              >
+                Entrar
+              </button>
+            )}
+          </div>
+        </div>
+      </nav>
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 no-print">
+        <AnimatePresence mode="wait">
+          {view === 'home' && <HomeView user={user} isAdmin={isAdmin} setView={setView} handleLogin={handleLogin} error={error} />}
+          {view === 'admin' && isAdmin && <AdminPanel setView={setView} />}
+          {view === 'student' && user && <StudentPanel startAssessment={startAssessment} error={error} />}
+          {view === 'test' && (
+            <TestView 
+              questions={questions} 
+              currentIndex={currentQuestionIndex} 
+              setCurrentIndex={setCurrentQuestionIndex}
+              answers={studentAnswers}
+              setAnswers={setStudentAnswers}
+              timeLeft={timeLeft}
+              onFinish={finishTest}
+            />
+          )}
+          {view === 'result' && testResult && <ResultView result={testResult} setView={setView} />}
+        </AnimatePresence>
+      </main>
+    </div>
+  );
+}
+
+// --- Views ---
+
+function HomeView({ user, isAdmin, setView, handleLogin, error }: any) {
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      className="grid lg:grid-cols-2 gap-12 items-center no-print"
+    >
+      <div className="space-y-8">
+        <div className="space-y-4">
+          <h1 className="text-5xl sm:text-6xl font-extrabold tracking-tight leading-tight">
+            Finanças - URCA: <br />
+            <span className="text-emerald-600 italic font-serif">Onde a Tecnologia encontra o Valor</span>
+          </h1>
+          <p className="text-lg text-neutral-600 leading-relaxed max-w-xl">
+            A revolução das finanças modernas é impulsionada por IA, Blockchain e Data Science. 
+            Nossa plataforma capacita estudantes com ferramentas inteligentes para dominar o mercado financeiro 
+            e construir um futuro sólido e inovador.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-3 gap-4">
+          <div className="aspect-square bg-neutral-200 rounded-2xl overflow-hidden relative group">
+            <img src="https://picsum.photos/seed/finance1/400/400" alt="Finance" className="object-cover w-full h-full group-hover:scale-110 transition-transform duration-500" referrerPolicy="no-referrer" />
+            <div className="absolute inset-0 bg-black/20" />
+          </div>
+          <div className="aspect-square bg-neutral-200 rounded-2xl overflow-hidden relative group">
+            <img src="https://picsum.photos/seed/finance2/400/400" alt="Market" className="object-cover w-full h-full group-hover:scale-110 transition-transform duration-500" referrerPolicy="no-referrer" />
+            <div className="absolute inset-0 bg-black/20" />
+          </div>
+          <div className="aspect-square bg-neutral-200 rounded-2xl overflow-hidden relative group">
+            <img src="https://picsum.photos/seed/finance3/400/400" alt="Tech" className="object-cover w-full h-full group-hover:scale-110 transition-transform duration-500" referrerPolicy="no-referrer" />
+            <div className="absolute inset-0 bg-black/20" />
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white p-8 rounded-3xl shadow-xl border border-neutral-100">
+        {user ? (
+          <div className="text-center space-y-6 py-8">
+            <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto">
+              <GraduationCap className="w-10 h-10 text-emerald-600" />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-2xl font-bold">Bem-vindo de volta!</h2>
+              <p className="text-neutral-500">Você está logado como {user.email}</p>
+            </div>
+            <button 
+              onClick={() => setView(isAdmin ? 'admin' : 'student')}
+              className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200"
+            >
+              Ir para o Painel
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleLogin} className="space-y-6">
+            <div className="space-y-2">
+              <h2 className="text-2xl font-bold">Login de Estudante</h2>
+              <p className="text-neutral-500 text-sm">Acesse sua conta para iniciar avaliações.</p>
+            </div>
+
+            {error && (
+              <div className="bg-red-50 text-red-600 p-4 rounded-xl flex items-center gap-3 text-sm font-medium border border-red-100">
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                {error}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-sm font-semibold text-neutral-700 ml-1">E-mail</label>
+                <input 
+                  name="email"
+                  type="email" 
+                  required
+                  placeholder="seu@email.com"
+                  className="w-full px-4 py-3 rounded-xl border border-neutral-200 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-semibold text-neutral-700 ml-1">Senha</label>
+                <input 
+                  name="password"
+                  type="password" 
+                  required
+                  placeholder="••••••••"
+                  className="w-full px-4 py-3 rounded-xl border border-neutral-200 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all"
+                />
+              </div>
+            </div>
+
+            <button 
+              type="submit"
+              className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200"
+            >
+              Entrar na Plataforma
+            </button>
+            
+            <p className="text-center text-xs text-neutral-400">
+              Uso restrito a alunos autorizados da URCA.
+            </p>
+          </form>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+function AdminPanel({ setView }: any) {
+  const [assessments, setAssessments] = useState<Assessment[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [showStudents, setShowStudents] = useState(false);
+  const [emailsText, setEmailsText] = useState('');
+  const [isEditingAccess, setIsEditingAccess] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newAssessment, setNewAssessment] = useState({ title: '', baseText: '', timeLimit: 30, status: 'Available' as 'Available' | 'Unavailable' });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [showDefaultModal, setShowDefaultModal] = useState(false);
+  const [defaultQuestions, setDefaultQuestions] = useState<Question[]>([]);
+  const [isGeneratingDefault, setIsGeneratingDefault] = useState(false);
+  const [selectedAssessmentForDefault, setSelectedAssessmentForDefault] = useState<Assessment | null>(null);
+
+  const generateDefaultAssessment = async (assessment: Assessment) => {
+    setIsGeneratingDefault(true);
+    setSelectedAssessmentForDefault(assessment);
+    try {
+      const prompt = `Crie uma avaliação de 5 questões de múltipla escolha baseada no seguinte texto sobre finanças: "${assessment.baseText.substring(0, 15000)}".
+      
+      DIRETRIZES DE CONTEÚDO CRÍTICAS:
+      1. As questões devem ser REFLEXIVAS e ANALÍTICAS, fugindo da simples memorização.
+      2. Utilize EXEMPLOS PRÁTICOS ou ESTUDOS DE CASO curtos em cada questão para contextualizar o problema.
+      3. O nível de dificuldade deve ser ALTO (nível universitário), exigindo que o aluno aplique os conceitos do texto em situações reais.
+      4. Cada questão deve ter exatamente 5 alternativas (A, B, C, D, E).
+      5. Forneça o gabarito detalhado com uma breve explicação para cada resposta correta.
+      
+      FORMATO DE RETORNO (JSON):
+      Retorne APENAS um array JSON no seguinte formato:
+      [
+        {
+          "question": "Texto da questão com o estudo de caso...",
+          "options": ["A) ...", "B) ...", "C) ...", "D) ...", "E) ..."],
+          "correctIndex": 0,
+          "explanation": "Explicação do porquê esta é a resposta correta com base no texto e no caso."
+        }
+      ]`;
+
+      const response = await genAI.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ parts: [{ text: prompt }] }],
+        config: {
+          responseMimeType: "application/json"
+        }
+      });
+
+      const text = response.text;
+      const parsedQuestions = JSON.parse(text);
+      setDefaultQuestions(parsedQuestions);
+      setShowDefaultModal(true);
+    } catch (err) {
+      console.error("Erro ao gerar avaliação default:", err);
+      alert("Erro ao gerar avaliação. Tente novamente.");
+    } finally {
+      setIsGeneratingDefault(false);
+    }
+  };
+
+  const downloadAssessmentTXT = () => {
+    if (!selectedAssessmentForDefault || defaultQuestions.length === 0) return;
+
+    let content = "UNIVERSIDADE REGIONAL DO CARIRI – URCA\n";
+    content += "CURSO DE CIÊNCIAS ECONÔMICAS\n";
+    content += "DISCIPLINA: FINANÇAS I\n";
+    content += "ALUNO/A: ________________________________________________\n";
+    content += "DATA: ____/____/_______\n\n";
+    content += `AVALIAÇÃO: ${selectedAssessmentForDefault.title.toUpperCase()}\n\n`;
+
+    defaultQuestions.forEach((q, i) => {
+      content += `${i + 1}. ${q.question}\n`;
+      q.options.forEach((opt, idx) => {
+        const optLetter = String.fromCharCode(65 + idx);
+        content += `   ${optLetter}) ${opt}\n`;
+      });
+      content += "\n";
+    });
+
+    content += "--------------------------------------------------\n";
+    content += "GABARITO (APENAS PARA O PROFESSOR)\n";
+    content += "--------------------------------------------------\n";
+    defaultQuestions.forEach((q, i) => {
+      content += `Questão ${i + 1}: ${String.fromCharCode(65 + q.correctIndex)}\n`;
+      content += `Explicação: ${q.explanation}\n\n`;
+    });
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `avaliacao_${selectedAssessmentForDefault.title.toLowerCase().replace(/\s+/g, '_')}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  useEffect(() => {
+    const q = query(collection(db, 'assessments'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      setAssessments(snap.docs.map(d => ({ id: d.id, ...d.data() } as Assessment)));
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    const fetchAccess = async () => {
+      const docSnap = await getDoc(doc(db, 'config', 'access'));
+      if (docSnap.exists()) {
+        setEmailsText(docSnap.data().emails.join(', '));
+      }
+    };
+    fetchAccess();
+  }, []);
+
+  useEffect(() => {
+    if (showStudents) {
+      const q = query(collection(db, 'students'), orderBy('lastLogin', 'desc'));
+      const unsubscribe = onSnapshot(q, (snap) => {
+        setStudents(snap.docs.map(d => ({ id: d.id, ...d.data() } as Student)));
+      });
+      return unsubscribe;
+    }
+  }, [showStudents]);
+
+  const saveAccess = async () => {
+    const emails = emailsText.split(',').map(e => e.trim()).filter(e => e !== '');
+    await setDoc(doc(db, 'config', 'access'), { emails });
+    setIsEditingAccess(false);
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    setError(null);
+    setUploadSuccess(false);
+    try {
+      if (file.type === 'application/pdf') {
+        const arrayBuffer = await file.arrayBuffer();
+        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+        const pdf = await loadingTask.promise;
+        let fullText = '';
+        
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          const pageText = textContent.items
+            .map((item: any) => item.str || '')
+            .join(' ');
+          fullText += pageText + '\n';
+        }
+        
+        if (!fullText.trim()) {
+          throw new Error('Não foi possível extrair texto deste PDF. O arquivo pode estar protegido ou ser apenas uma imagem.');
+        }
+        
+        setNewAssessment(prev => ({ ...prev, baseText: fullText.trim() }));
+        setUploadSuccess(true);
+      } else if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
+        const text = await file.text();
+        if (!text.trim()) throw new Error('O arquivo de texto está vazio.');
+        setNewAssessment(prev => ({ ...prev, baseText: text.trim() }));
+        setUploadSuccess(true);
+      } else {
+        throw new Error('Formato de arquivo não suportado. Use PDF ou TXT.');
+      }
+    } catch (err: any) {
+      console.error('Erro no upload:', err);
+      setError(err.message || 'Erro ao processar arquivo.');
+    } finally {
+      setIsUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const openAddModal = () => {
+    setEditingId(null);
+    setNewAssessment({ title: '', baseText: '', timeLimit: 30, status: 'Available' });
+    setUploadSuccess(false);
+    setError(null);
+    setShowAddModal(true);
+  };
+
+  const openEditModal = (assessment: Assessment) => {
+    setEditingId(assessment.id);
+    setNewAssessment({
+      title: assessment.title,
+      baseText: assessment.baseText,
+      timeLimit: assessment.timeLimit,
+      status: assessment.status
+    });
+    setUploadSuccess(true);
+    setShowAddModal(true);
+  };
+
+  const saveAssessment = async () => {
+    console.log('Tentando salvar avaliação...', newAssessment);
+    if (!newAssessment.title || !newAssessment.baseText) {
+      console.warn('Título ou texto base ausente');
+      return;
+    }
+    setError(null);
+    try {
+      if (editingId) {
+        await updateDoc(doc(db, 'assessments', editingId), {
+          ...newAssessment,
+          updatedAt: serverTimestamp()
+        });
+        console.log('Avaliação atualizada com sucesso!');
+      } else {
+        await addDoc(collection(db, 'assessments'), {
+          ...newAssessment,
+          createdAt: serverTimestamp()
+        });
+        console.log('Avaliação salva com sucesso!');
+      }
+      closeModal();
+    } catch (err: any) {
+      console.error('Erro ao salvar avaliação:', err);
+      const errorMessage = err.message || String(err);
+      if (errorMessage.toLowerCase().includes('permission')) {
+        try {
+          handleFirestoreError(err, OperationType.WRITE, 'assessments');
+        } catch (authErr: any) {
+          setError(`Erro de permissão: ${authErr.message}`);
+        }
+      } else {
+        setError(`Erro ao salvar: ${errorMessage}`);
+      }
+    }
+  };
+
+  const closeModal = () => {
+    setShowAddModal(false);
+    setEditingId(null);
+    setNewAssessment({ title: '', baseText: '', timeLimit: 30, status: 'Available' });
+    setUploadSuccess(false);
+    setError(null);
+  };
+
+  const deleteAssessment = async (id: string) => {
+    if (confirm('Tem certeza que deseja excluir esta avaliação?')) {
+      await deleteDoc(doc(db, 'assessments', id));
+    }
+  };
+
+  const [allResults, setAllResults] = useState<Result[]>([]);
+  const [showResults, setShowResults] = useState(false);
+  const [selectedResultForModal, setSelectedResultForModal] = useState<Result | null>(null);
+
+  useEffect(() => {
+    if (showResults) {
+      const q = query(collection(db, 'results'), orderBy('timestamp', 'desc'));
+      const unsubscribe = onSnapshot(q, (snap) => {
+        setAllResults(snap.docs.map(d => ({ id: d.id, ...d.data() } as Result)));
+      });
+      return unsubscribe;
+    }
+  }, [showResults]);
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="space-y-8"
+    >
+      <div className="flex items-center justify-between">
+        <h2 className="text-3xl font-bold flex items-center gap-3">
+          <LayoutDashboard className="w-8 h-8 text-emerald-600" />
+          Painel de Controle
+        </h2>
+        <div className="flex gap-3">
+          <button 
+            onClick={() => {
+              setShowResults(!showResults);
+              setShowStudents(false);
+            }}
+            className={`px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition-all ${showResults ? 'bg-emerald-600 text-white' : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'}`}
+          >
+            <GraduationCap className="w-5 h-5" />
+            Resultados
+          </button>
+          <button 
+            onClick={() => {
+              setShowStudents(!showStudents);
+              setShowResults(false);
+            }}
+            className={`px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition-all ${showStudents ? 'bg-emerald-600 text-white' : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'}`}
+          >
+            <User className="w-5 h-5" />
+            Alunos
+          </button>
+          <button 
+            onClick={openAddModal}
+            className="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-emerald-700 transition-all"
+          >
+            <Plus className="w-5 h-5" />
+            Nova Avaliação
+          </button>
+        </div>
+      </div>
+
+      {showResults ? (
+        <div className="bg-white p-6 rounded-3xl border border-neutral-100 shadow-sm space-y-4">
+          <h3 className="text-lg font-bold flex items-center gap-2">
+            <GraduationCap className="w-5 h-5 text-emerald-600" />
+            Resultados dos Alunos
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-neutral-100">
+                  <th className="py-4 px-4 font-bold text-sm text-neutral-400 uppercase">Aluno</th>
+                  <th className="py-4 px-4 font-bold text-sm text-neutral-400 uppercase">Avaliação</th>
+                  <th className="py-4 px-4 font-bold text-sm text-neutral-400 uppercase">Nota</th>
+                  <th className="py-4 px-4 font-bold text-sm text-neutral-400 uppercase">Data</th>
+                  <th className="py-4 px-4 font-bold text-sm text-neutral-400 uppercase">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allResults.map(r => (
+                  <tr key={r.id} className="border-b border-neutral-50 hover:bg-neutral-50 transition-colors">
+                    <td className="py-4 px-4 font-medium">{r.email}</td>
+                    <td className="py-4 px-4">{r.assessmentTitle}</td>
+                    <td className="py-4 px-4 font-bold text-emerald-600">{r.score.toFixed(1)}</td>
+                    <td className="py-4 px-4 text-sm text-neutral-500">
+                      {r.timestamp?.toDate ? r.timestamp.toDate().toLocaleString() : 'Recent'}
+                    </td>
+                    <td className="py-4 px-4">
+                      <button 
+                        onClick={() => setSelectedResultForModal(r)}
+                        className="text-emerald-600 hover:text-emerald-700 font-bold text-sm flex items-center gap-1"
+                      >
+                        <Eye className="w-4 h-4" /> Ver Relatório
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {allResults.length === 0 && (
+              <div className="text-center py-12 text-neutral-400">Nenhum resultado encontrado.</div>
+            )}
+          </div>
+        </div>
+      ) : showStudents ? (
+        <div className="bg-white p-6 rounded-3xl border border-neutral-100 shadow-sm space-y-4">
+          <h3 className="text-lg font-bold flex items-center gap-2">
+            <User className="w-5 h-5 text-emerald-600" />
+            Alunos Registrados
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-neutral-100">
+                  <th className="py-4 px-4 font-bold text-sm text-neutral-400 uppercase">E-mail</th>
+                  <th className="py-4 px-4 font-bold text-sm text-neutral-400 uppercase">Último Acesso</th>
+                  <th className="py-4 px-4 font-bold text-sm text-neutral-400 uppercase">Data de Registro</th>
+                </tr>
+              </thead>
+              <tbody>
+                {students.map(s => (
+                  <tr key={s.id} className="border-b border-neutral-50 hover:bg-neutral-50 transition-colors">
+                    <td className="py-4 px-4 font-medium">{s.email}</td>
+                    <td className="py-4 px-4 text-sm text-neutral-500">
+                      {s.lastLogin?.toDate ? s.lastLogin.toDate().toLocaleString() : 'Recent'}
+                    </td>
+                    <td className="py-4 px-4 text-sm text-neutral-500">
+                      {s.createdAt?.toDate ? s.createdAt.toDate().toLocaleString() : 'Recent'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {students.length === 0 && (
+              <div className="text-center py-12 text-neutral-400">Nenhum aluno registrado ainda.</div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="grid md:grid-cols-3 gap-8">
+        {/* Access Management */}
+        <div className="md:col-span-1 bg-white p-6 rounded-3xl border border-neutral-100 shadow-sm space-y-4">
+          <h3 className="text-lg font-bold flex items-center gap-2">
+            <User className="w-5 h-5 text-emerald-600" />
+            Gestão de Acessos
+          </h3>
+          <p className="text-xs text-neutral-500">Insira os e-mails dos alunos autorizados separados por vírgula.</p>
+          
+          <textarea 
+            value={emailsText}
+            onChange={(e) => setEmailsText(e.target.value)}
+            disabled={!isEditingAccess}
+            className="w-full h-48 p-3 text-sm rounded-xl border border-neutral-200 focus:ring-2 focus:ring-emerald-500 outline-none transition-all disabled:bg-neutral-50"
+            placeholder="aluno1@urca.br, aluno2@urca.br..."
+          />
+          
+          <div className="flex gap-2">
+            {isEditingAccess ? (
+              <>
+                <button onClick={saveAccess} className="flex-1 bg-emerald-600 text-white py-2 rounded-lg text-sm font-bold">Salvar</button>
+                <button onClick={() => setIsEditingAccess(false)} className="flex-1 bg-neutral-100 text-neutral-600 py-2 rounded-lg text-sm font-bold">Cancelar</button>
+              </>
+            ) : (
+              <button onClick={() => setIsEditingAccess(true)} className="w-full bg-neutral-100 text-emerald-600 py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2">
+                <Edit className="w-4 h-4" /> Editar Lista
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Assessments List */}
+        <div className="md:col-span-2 bg-white p-6 rounded-3xl border border-neutral-100 shadow-sm space-y-4">
+          <h3 className="text-lg font-bold flex items-center gap-2">
+            <FileText className="w-5 h-5 text-emerald-600" />
+            Avaliações Criadas
+          </h3>
+          
+          <div className="space-y-3">
+            {assessments.map(a => (
+              <div key={a.id} className="flex items-center justify-between p-4 rounded-2xl border border-neutral-100 hover:border-emerald-200 transition-colors">
+                <div>
+                  <h4 className="font-bold">{a.title}</h4>
+                  <div className="flex items-center gap-3 text-xs text-neutral-500 mt-1">
+                    <span className="flex items-center gap-1"><Loader2 className="w-3 h-3" /> {a.timeLimit} min</span>
+                    <span className={`px-2 py-0.5 rounded-full ${a.status === 'Available' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                      {a.status === 'Available' ? 'Disponível' : 'Indisponível'}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => generateDefaultAssessment(a)} 
+                    disabled={isGeneratingDefault && selectedAssessmentForDefault?.id === a.id}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-neutral-100 text-neutral-700 rounded-lg text-xs font-bold hover:bg-neutral-200 transition-all disabled:opacity-50"
+                    title="Gerar Avaliação Default para Impressão"
+                  >
+                    {isGeneratingDefault && selectedAssessmentForDefault?.id === a.id ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Printer className="w-3 h-3" />
+                    )}
+                    Avaliação Default
+                  </button>
+                  <button 
+                    onClick={() => openEditModal(a)} 
+                    className="p-2 text-neutral-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                    title="Editar Avaliação"
+                  >
+                    <Edit className="w-5 h-5" />
+                  </button>
+                  <button 
+                    onClick={() => deleteAssessment(a.id)} 
+                    className="p-2 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                    title="Excluir Avaliação"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+            {assessments.length === 0 && (
+              <div className="text-center py-12 text-neutral-400">
+                Nenhuma avaliação criada ainda.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Add Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white w-full max-w-2xl rounded-3xl p-8 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto"
+          >
+            <h3 className="text-2xl font-bold">{editingId ? 'Editar Avaliação' : 'Nova Avaliação'}</h3>
+            
+            {error && (
+              <div className="bg-red-50 text-red-600 p-4 rounded-xl flex items-center gap-3 text-sm font-medium border border-red-100">
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                {error}
+              </div>
+            )}
+            
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-sm font-semibold">Título da Avaliação</label>
+                <input 
+                  value={newAssessment.title}
+                  onChange={(e) => setNewAssessment(prev => ({ ...prev, title: e.target.value }))}
+                  className="w-full px-4 py-3 rounded-xl border border-neutral-200 outline-none focus:ring-2 focus:ring-emerald-500"
+                  placeholder="Ex: Macroeconomia e o Mercado"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold">Tempo (minutos)</label>
+                  <input 
+                    type="number"
+                    value={newAssessment.timeLimit}
+                    onChange={(e) => setNewAssessment(prev => ({ ...prev, timeLimit: parseInt(e.target.value) }))}
+                    className="w-full px-4 py-3 rounded-xl border border-neutral-200 outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold">Status</label>
+                  <select 
+                    value={newAssessment.status}
+                    onChange={(e) => setNewAssessment(prev => ({ ...prev, status: e.target.value as any }))}
+                    className="w-full px-4 py-3 rounded-xl border border-neutral-200 outline-none focus:ring-2 focus:ring-emerald-500"
+                  >
+                    <option value="Available">Disponível</option>
+                    <option value="Unavailable">Indisponível</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-semibold">Base de Conhecimento (PDF ou TXT)</label>
+                <div className="flex items-center gap-4">
+                  <label className={`flex-1 border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center cursor-pointer transition-all ${uploadSuccess ? 'border-emerald-500 bg-emerald-50' : 'border-neutral-200 hover:bg-neutral-50'}`}>
+                    {uploadSuccess ? (
+                      <>
+                        <CheckCircle className="w-10 h-10 text-emerald-600 mb-2" />
+                        <span className="text-sm font-bold text-emerald-700">Arquivo Carregado com Sucesso!</span>
+                        <span className="text-xs text-emerald-600">Clique para trocar o arquivo</span>
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-10 h-10 text-neutral-400 mb-2" />
+                        <span className="text-sm text-neutral-600">Clique para selecionar o arquivo</span>
+                        <span className="text-xs text-neutral-400">PDF ou TXT</span>
+                      </>
+                    )}
+                    <input type="file" accept=".pdf,.txt" onChange={handleFileUpload} className="hidden" />
+                  </label>
+                  {isUploading && (
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+                      <span className="text-xs font-bold text-emerald-600">Processando...</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-4 pt-4">
+              <button 
+                onClick={saveAssessment}
+                disabled={!newAssessment.title || !newAssessment.baseText}
+                className="flex-1 bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {editingId ? 'Salvar Alterações' : 'Criar Avaliação'}
+              </button>
+              <button 
+                onClick={closeModal}
+                className="flex-1 bg-neutral-100 text-neutral-600 py-3 rounded-xl font-bold"
+              >
+                Cancelar
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Result Details Modal */}
+      {selectedResultForModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4 no-print">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white w-full max-w-4xl rounded-3xl p-8 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto relative"
+          >
+            <button 
+              onClick={() => setSelectedResultForModal(null)}
+              className="absolute top-6 right-6 p-2 hover:bg-neutral-100 rounded-full transition-colors"
+            >
+              <Plus className="w-6 h-6 rotate-45 text-neutral-400" />
+            </button>
+
+            <div className="space-y-6">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center">
+                  <GraduationCap className="w-8 h-8 text-emerald-600" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold">Relatório do Aluno</h3>
+                  <p className="text-neutral-500">{selectedResultForModal.email}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-6 bg-neutral-50 rounded-2xl border border-neutral-100">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest">Avaliação</span>
+                  <p className="font-bold text-sm truncate">{selectedResultForModal.assessmentTitle}</p>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest">Nota</span>
+                  <p className="font-bold text-emerald-600 text-lg">{selectedResultForModal.score.toFixed(1)} / 2.0</p>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest">Acertos</span>
+                  <p className="font-bold text-neutral-900 text-lg">{Math.round(selectedResultForModal.score / 0.4)}/5</p>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest">Data</span>
+                  <p className="font-bold text-neutral-900 text-sm">
+                    {selectedResultForModal.timestamp?.toDate ? selectedResultForModal.timestamp.toDate().toLocaleDateString() : 'Recent'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h4 className="font-bold text-lg">Revisão das Questões</h4>
+                <div className="space-y-4">
+                  {selectedResultForModal.questions.map((q, i) => (
+                    <div key={i} className="p-6 rounded-2xl border border-neutral-100 space-y-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <h5 className="font-bold leading-tight">{i + 1}. {q.question}</h5>
+                        {selectedResultForModal.answers[i] === q.correctIndex ? (
+                          <CheckCircle className="w-5 h-5 text-emerald-500 flex-shrink-0" />
+                        ) : (
+                          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                        )}
+                      </div>
+                      
+                      <div className="grid sm:grid-cols-2 gap-3 text-sm">
+                        <div className={`p-3 rounded-xl border ${selectedResultForModal.answers[i] === q.correctIndex ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'}`}>
+                          <span className="text-[10px] font-bold uppercase opacity-50">Resposta do Aluno</span>
+                          <p className="font-medium">{q.options[selectedResultForModal.answers[i]] || 'Não respondida'}</p>
+                        </div>
+                        <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+                          <span className="text-[10px] font-bold uppercase text-emerald-600">Gabarito</span>
+                          <p className="font-medium text-emerald-900">{q.options[q.correctIndex]}</p>
+                        </div>
+                      </div>
+                      <div className="text-xs text-neutral-500 italic bg-neutral-50 p-3 rounded-xl">
+                        <span className="font-bold not-italic text-neutral-700 mr-2">Explicação:</span>
+                        {q.explanation}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-4">
+              <button 
+                onClick={() => setSelectedResultForModal(null)}
+                className="w-full bg-neutral-900 text-white py-4 rounded-2xl font-bold hover:bg-neutral-800 transition-all"
+              >
+                Fechar Relatório
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Default Assessment Modal (Printable) */}
+      {showDefaultModal && selectedAssessmentForDefault && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[150] flex items-center justify-center p-4 overflow-y-auto">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white w-full max-w-4xl rounded-3xl p-8 shadow-2xl space-y-6 my-8"
+          >
+            <div className="flex justify-between items-center border-b pb-4 sticky top-0 bg-white z-10 no-print">
+              <h3 className="text-2xl font-bold text-neutral-800">Baixar Avaliação</h3>
+              <div className="flex gap-3">
+                <button 
+                  onClick={downloadAssessmentTXT}
+                  className="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-emerald-700 transition-all"
+                >
+                  <FileText className="w-5 h-5" /> Baixar TXT
+                </button>
+                <button 
+                  onClick={() => setShowDefaultModal(false)}
+                  className="bg-neutral-100 text-neutral-600 px-4 py-2 rounded-xl font-bold hover:bg-neutral-200 transition-all"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+
+            <div id="printable-area" className="bg-white p-8 border border-neutral-200 rounded-xl font-serif text-neutral-900">
+              {/* Header */}
+              <div className="border-2 border-neutral-900 p-6 mb-8 space-y-4">
+                <div className="flex flex-col items-center text-center border-b-2 border-neutral-900 pb-4 space-y-1">
+                  <h1 className="text-xl font-bold uppercase">UNIVERSIDADE REGIONAL DO CARIRI – URCA</h1>
+                  <h2 className="text-lg font-bold uppercase">CURSO DE CIÊNCIAS ECONÔMICAS</h2>
+                  <h3 className="text-md font-bold uppercase">DISCIPLINA: FINANÇAS I</h3>
+                </div>
+                <div className="grid grid-cols-2 gap-4 pt-4">
+                  <div className="space-y-2">
+                    <p className="text-sm font-bold uppercase">ALUNO/A: ________________________________________________</p>
+                    <p className="text-sm font-bold uppercase">DATA: ____/____/_______</p>
+                  </div>
+                  <div className="text-right space-y-2">
+                    <p className="text-sm font-bold">VALOR: 2,0 PONTOS</p>
+                    <p className="text-sm font-bold">NOTA: _________</p>
+                  </div>
+                </div>
+                <div className="text-center pt-6">
+                  <h2 className="text-lg font-bold underline uppercase">{selectedAssessmentForDefault.title}</h2>
+                </div>
+              </div>
+
+              {/* Questions */}
+              <div className="space-y-8">
+                {defaultQuestions.map((q, i) => (
+                  <div key={i} className="space-y-3">
+                    <p className="font-bold text-base">{i + 1}. {q.question}</p>
+                    <div className="grid grid-cols-1 gap-2 ml-4">
+                      {q.options.map((opt, idx) => (
+                        <p key={idx} className="text-sm">
+                          <span className="font-bold mr-2">{String.fromCharCode(65 + idx)})</span> {opt}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Answer Key (Gabarito) */}
+              <div className="mt-12 pt-8 border-t-2 border-dashed border-neutral-300 print:break-before-page">
+                <h3 className="text-lg font-bold uppercase mb-4 text-emerald-700">Gabarito (Apenas para o Professor)</h3>
+                <div className="grid grid-cols-5 gap-4">
+                  {defaultQuestions.map((q, i) => (
+                    <div key={i} className="border p-2 text-center rounded bg-emerald-50 border-emerald-200">
+                      <span className="block text-xs font-bold text-emerald-600">Questão {i + 1}</span>
+                      <span className="text-lg font-black text-emerald-900">{String.fromCharCode(65 + q.correctIndex)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-6 space-y-2">
+                  {defaultQuestions.map((q, i) => (
+                    <p key={i} className="text-[10px] text-neutral-600">
+                      <span className="font-bold">Q{i+1}:</span> {q.explanation}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+function StudentPanel({ startAssessment, error }: any) {
+  const [assessments, setAssessments] = useState<Assessment[]>([]);
+
+  useEffect(() => {
+    const q = query(collection(db, 'assessments'), where('status', '==', 'Available'));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      setAssessments(snap.docs.map(d => ({ id: d.id, ...d.data() } as Assessment)));
+    });
+    return unsubscribe;
+  }, []);
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="space-y-8"
+    >
+      {error && (
+        <div className="bg-red-50 text-red-600 p-4 rounded-xl flex items-center gap-3 text-sm font-medium border border-red-100">
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          {error}
+        </div>
+      )}
+      <div className="space-y-2">
+        <h2 className="text-3xl font-bold">Avaliações Disponíveis</h2>
+        <p className="text-neutral-500">Selecione uma avaliação para iniciar seu teste.</p>
+      </div>
+
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {assessments.map(a => (
+          <div key={a.id} className="bg-white p-6 rounded-3xl border border-neutral-100 shadow-sm hover:shadow-md transition-all group">
+            <div className="w-12 h-12 bg-emerald-100 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+              <BookOpen className="w-6 h-6 text-emerald-600" />
+            </div>
+            <h3 className="text-xl font-bold mb-2">{a.title}</h3>
+            <div className="flex items-center gap-4 text-sm text-neutral-500 mb-6">
+              <span className="flex items-center gap-1"><Loader2 className="w-4 h-4" /> {a.timeLimit} min</span>
+              <span className="flex items-center gap-1"><FileText className="w-4 h-4" /> 5 Questões</span>
+            </div>
+            <button 
+              onClick={() => startAssessment(a)}
+              className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-emerald-700 transition-colors"
+            >
+              Iniciar Avaliação <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        ))}
+        {assessments.length === 0 && (
+          <div className="col-span-full text-center py-20 bg-white rounded-3xl border border-dashed border-neutral-200 text-neutral-400">
+            Nenhuma avaliação disponível no momento.
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+function TestView({ questions, currentIndex, setCurrentIndex, answers, setAnswers, timeLeft, onFinish }: any) {
+  const q = questions[currentIndex];
+  
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="max-w-3xl mx-auto space-y-8"
+    >
+      <div className="flex items-center justify-between bg-white px-6 py-4 rounded-2xl shadow-sm border border-neutral-100 sticky top-20 z-40">
+        <div className="flex items-center gap-4">
+          <span className="text-sm font-bold text-neutral-500">Questão {currentIndex + 1} de {questions.length}</span>
+          <div className="w-32 h-2 bg-neutral-100 rounded-full overflow-hidden">
+            <div className="h-full bg-emerald-500 transition-all" style={{ width: `${((currentIndex + 1) / questions.length) * 100}%` }} />
+          </div>
+        </div>
+        <div className={`flex items-center gap-2 font-mono font-bold px-4 py-2 rounded-xl ${timeLeft < 60 ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-neutral-100 text-neutral-700'}`}>
+          <Loader2 className={`w-4 h-4 ${timeLeft >= 60 ? 'animate-spin' : ''}`} />
+          {formatTime(timeLeft)}
+        </div>
+      </div>
+
+      <div className="bg-white p-8 rounded-3xl shadow-xl border border-neutral-100 space-y-8">
+        <h3 className="text-2xl font-bold leading-tight">{q.question}</h3>
+        
+        <div className="space-y-3">
+          {q.options.map((opt: string, idx: number) => (
+            <button 
+              key={idx}
+              onClick={() => {
+                const newAnswers = [...answers];
+                newAnswers[currentIndex] = idx;
+                setAnswers(newAnswers);
+              }}
+              className={`w-full text-left p-5 rounded-2xl border-2 transition-all flex items-center justify-between group ${
+                answers[currentIndex] === idx 
+                ? 'border-emerald-500 bg-emerald-50 ring-4 ring-emerald-50' 
+                : 'border-neutral-100 hover:border-emerald-200 hover:bg-neutral-50'
+              }`}
+            >
+              <span className={`font-medium ${answers[currentIndex] === idx ? 'text-emerald-900' : 'text-neutral-700'}`}>{opt}</span>
+              <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
+                answers[currentIndex] === idx ? 'border-emerald-500 bg-emerald-500' : 'border-neutral-200 group-hover:border-emerald-300'
+              }`}>
+                {answers[currentIndex] === idx && <CheckCircle className="w-4 h-4 text-white" />}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <button 
+          onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
+          disabled={currentIndex === 0}
+          className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-neutral-600 hover:bg-neutral-100 disabled:opacity-30 transition-all"
+        >
+          <ChevronLeft className="w-5 h-5" /> Anterior
+        </button>
+        
+        {currentIndex === questions.length - 1 ? (
+          <button 
+            onClick={onFinish}
+            className="bg-emerald-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-emerald-700 shadow-lg shadow-emerald-200 transition-all"
+          >
+            Finalizar Avaliação
+          </button>
+        ) : (
+          <button 
+            onClick={() => setCurrentIndex(Math.min(questions.length - 1, currentIndex + 1))}
+            className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold bg-neutral-900 text-white hover:bg-neutral-800 transition-all"
+          >
+            Próxima <ChevronRight className="w-5 h-5" />
+          </button>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+function ResultView({ result, setView }: { result: Result, setView: any }) {
+  const downloadReport = () => {
+    const content = `
+RELATÓRIO DE DESEMPENHO - FINANÇAS URCA
+Avaliação: ${result.assessmentTitle}
+Estudante: ${result.email}
+Data: ${new Date().toLocaleString()}
+Nota Final: ${result.score.toFixed(1)} / 2.0
+
+DETALHES DA PROVA:
+${result.questions.map((q, i) => `
+Questão ${i + 1}: ${q.question}
+Sua Resposta: ${q.options[result.answers[i]] || 'Não respondida'}
+Gabarito: ${q.options[q.correctIndex]}
+Explicação: ${q.explanation}
+`).join('\n')}
+    `;
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Relatorio_${result.assessmentTitle.replace(/\s+/g, '_')}.txt`;
+    a.click();
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="max-w-4xl mx-auto space-y-8"
+    >
+      <div className="bg-white p-12 rounded-[3rem] shadow-2xl border border-neutral-100 text-center space-y-8 relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-full h-2 bg-emerald-500" />
+        
+        <div className="space-y-4">
+          <div className="w-24 h-24 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <CheckCircle className="w-12 h-12 text-emerald-600" />
+          </div>
+          <h2 className="text-4xl font-extrabold">Avaliação Concluída!</h2>
+          <p className="text-neutral-500 text-lg">Parabéns pelo seu esforço. Confira seu desempenho abaixo.</p>
+        </div>
+
+        <div className="grid sm:grid-cols-3 gap-8 py-8 border-y border-neutral-100">
+          <div className="space-y-1">
+            <span className="text-sm font-bold text-neutral-400 uppercase tracking-widest">Nota Final</span>
+            <div className="text-5xl font-black text-emerald-600">{result.score.toFixed(1)} / 2.0</div>
+          </div>
+          <div className="space-y-1">
+            <span className="text-sm font-bold text-neutral-400 uppercase tracking-widest">Acertos</span>
+            <div className="text-5xl font-black text-neutral-900">{Math.round(result.score / 0.4)}/5</div>
+          </div>
+          <div className="space-y-1">
+            <span className="text-sm font-bold text-neutral-400 uppercase tracking-widest">Status</span>
+            <div className={`text-2xl font-bold mt-3 ${result.score >= 1.4 ? 'text-emerald-600' : 'text-red-600'}`}>
+              {result.score >= 1.4 ? 'Aprovado' : 'Recuperação'}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-4 justify-center">
+          <button 
+            onClick={downloadReport}
+            className="bg-neutral-900 text-white px-8 py-4 rounded-2xl font-bold flex items-center gap-2 hover:bg-neutral-800 transition-all shadow-lg"
+          >
+            <Download className="w-5 h-5" /> Baixar Relatório
+          </button>
+          <button 
+            onClick={() => setView('student')}
+            className="bg-neutral-100 text-neutral-700 px-8 py-4 rounded-2xl font-bold hover:bg-neutral-200 transition-all"
+          >
+            Voltar ao Início
+          </button>
+        </div>
+      </div>
+
+      <div className="space-y-6">
+        <h3 className="text-2xl font-bold px-4">Revisão Detalhada</h3>
+        <div className="space-y-4">
+          {result.questions.map((q, i) => (
+            <div key={i} className="bg-white p-6 rounded-3xl border border-neutral-100 shadow-sm space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <h4 className="font-bold text-lg leading-tight">{i + 1}. {q.question}</h4>
+                {result.answers[i] === q.correctIndex ? (
+                  <CheckCircle className="w-6 h-6 text-emerald-500 flex-shrink-0" />
+                ) : (
+                  <AlertCircle className="w-6 h-6 text-red-500 flex-shrink-0" />
+                )}
+              </div>
+              
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div className="p-4 rounded-xl bg-neutral-50 border border-neutral-100">
+                  <span className="text-xs font-bold text-neutral-400 uppercase">Sua Resposta</span>
+                  <p className={`font-medium mt-1 ${result.answers[i] === q.correctIndex ? 'text-emerald-700' : 'text-red-700'}`}>
+                    {q.options[result.answers[i]] || 'Não respondida'}
+                  </p>
+                </div>
+                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-100">
+                  <span className="text-xs font-bold text-emerald-600 uppercase">Gabarito</span>
+                  <p className="font-medium mt-1 text-emerald-900">{q.options[q.correctIndex]}</p>
+                </div>
+              </div>
+
+              <div className="bg-neutral-50 p-4 rounded-xl text-sm text-neutral-600 leading-relaxed italic">
+                <span className="font-bold not-italic text-neutral-900 mr-2">Explicação:</span>
+                {q.explanation}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </motion.div>
+  );
+}

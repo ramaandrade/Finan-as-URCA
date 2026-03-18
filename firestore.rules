@@ -1,0 +1,41 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+        (request.auth.token.email.lower() == "admin@urca.br" || 
+         request.auth.token.email.lower() == "rama.lucas@urca.br");
+    }
+
+    // Config access (authorized emails)
+    match /config/access {
+      allow read: if true; // Needed for login check
+      allow write: if isAdmin();
+    }
+
+    // Assessments
+    match /assessments/{assessmentId} {
+      allow read: if true; // Students need to read to take the test
+      allow write: if isAdmin();
+    }
+
+    // Results
+    match /results/{resultId} {
+      allow create: if true; // Students submit results
+      allow read: if isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    // Students
+    match /students/{studentId} {
+      allow read: if isAdmin() || (isAuthenticated() && request.auth.uid == studentId);
+      allow create, update: if isAuthenticated() && request.auth.uid == studentId;
+      allow delete: if isAdmin();
+    }
+  }
+}
