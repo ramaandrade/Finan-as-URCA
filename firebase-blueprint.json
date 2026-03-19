@@ -50,12 +50,28 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["email", "createdAt"]
+    },
+    "AppSettings": {
+      "title": "App Settings",
+      "description": "Global application settings.",
+      "type": "object",
+      "properties": {
+        "isLocked": {
+          "type": "boolean",
+          "description": "Whether the app is locked for non-admin users."
+        }
+      },
+      "required": ["isLocked"]
     }
   },
   "firestore": {
     "/config/access": {
       "schema": "UserAccess",
       "description": "Global configuration for authorized emails."
+    },
+    "/config/settings": {
+      "schema": "AppSettings",
+      "description": "Global application settings."
     },
     "/assessments/{assessmentId}": {
       "schema": "Assessment",

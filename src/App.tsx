@@ -161,6 +161,7 @@ export default function App() {
   const [testResult, setTestResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState(0);
+  const [isLocked, setIsLocked] = useState(false);
   const [isInvalidated, setIsInvalidated] = useState(false);
 
   // Auth Listener
@@ -168,7 +169,7 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       const email = u?.email?.toLowerCase();
-      const isSystemAdmin = email === 'admin@urca.br' || email === 'rama.lucas@urca.br';
+      const isSystemAdmin = email === 'rama.lucas@urca.br';
       setIsAdmin(isSystemAdmin);
       
       if (u && !isSystemAdmin) {
@@ -196,6 +197,23 @@ export default function App() {
     });
     return unsubscribe;
   }, []);
+
+  // Load App Lock State
+  useEffect(() => {
+    const unsubscribe = onSnapshot(doc(db, 'config', 'settings'), (docSnap) => {
+      if (docSnap.exists()) {
+        const locked = docSnap.data().isLocked || false;
+        setIsLocked(locked);
+        
+        // If app becomes locked and current user is not admin, redirect to home and show error
+        if (locked && user && !isAdmin) {
+          setView('home');
+          setError('O aplicativo foi travado pelo administrador.');
+        }
+      }
+    });
+    return unsubscribe;
+  }, [user, isAdmin]);
 
   // Load Authorized Emails
   useEffect(() => {
@@ -255,7 +273,13 @@ export default function App() {
       setError(null);
       // Check if authorized (unless admin)
       const lowerEmail = email.toLowerCase();
-      const isSystemAdmin = lowerEmail === 'admin@urca.br' || lowerEmail === 'rama.lucas@urca.br';
+      const isSystemAdmin = lowerEmail === 'rama.lucas@urca.br';
+      
+      // Check App Lock
+      if (isLocked && !isSystemAdmin) {
+        throw new Error('O aplicativo está travado no momento. Apenas o administrador tem acesso.');
+      }
+
       if (!isSystemAdmin && !authorizedEmails.includes(email)) {
         throw new Error('E-mail não autorizado para acesso.');
       }
@@ -265,7 +289,7 @@ export default function App() {
       } catch (err: any) {
         if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
           // Try to create the user if authorized and using the default password
-          if (password === '123456') {
+          if (password === '430798@R') {
             await createUserWithEmailAndPassword(auth, email, password);
           } else {
             throw new Error('Credenciais inválidas.');
@@ -382,6 +406,16 @@ export default function App() {
     }
   }, [view, timeLeft]);
 
+  const handleToggleLock = async () => {
+    try {
+      const settingsRef = doc(db, 'config', 'settings');
+      await setDoc(settingsRef, { isLocked: !isLocked }, { merge: true });
+    } catch (err) {
+      console.error('Erro ao alternar trava:', err);
+      setError('Erro ao alternar trava do aplicativo.');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-neutral-50 flex items-center justify-center">
@@ -401,6 +435,15 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-4">
+            {user && isAdmin && (
+              <button 
+                onClick={handleToggleLock}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all shadow-sm ${isLocked ? 'bg-red-100 text-red-600 hover:bg-red-200' : 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200'}`}
+              >
+                {isLocked ? <AlertCircle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                {isLocked ? 'Destravar App' : 'Travar App'}
+              </button>
+            )}
             {user ? (
               <>
                 <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-neutral-100 rounded-full text-sm font-medium">
@@ -438,8 +481,8 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 no-print">
         <AnimatePresence mode="wait">
-          {view === 'home' && <HomeView user={user} isAdmin={isAdmin} setView={setView} handleLogin={handleLogin} error={error} />}
-          {view === 'admin' && isAdmin && <AdminPanel setView={setView} />}
+          {view === 'home' && <HomeView user={user} isAdmin={isAdmin} setView={setView} handleLogin={handleLogin} error={error} isLocked={isLocked} handleToggleLock={handleToggleLock} />}
+          {view === 'admin' && isAdmin && <AdminPanel setView={setView} isLocked={isLocked} handleToggleLock={handleToggleLock} />}
           {view === 'student' && user && <StudentPanel startAssessment={startAssessment} error={error} />}
           {view === 'test' && (
             <TestView 
@@ -461,7 +504,7 @@ export default function App() {
 
 // --- Views ---
 
-function HomeView({ user, isAdmin, setView, handleLogin, error }: any) {
+function HomeView({ user, isAdmin, setView, handleLogin, error, isLocked, handleToggleLock }: any) {
   return (
     <motion.div 
       initial={{ opacity: 0, y: 20 }}
@@ -482,19 +525,45 @@ function HomeView({ user, isAdmin, setView, handleLogin, error }: any) {
           </p>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
-          <div className="aspect-square bg-neutral-200 rounded-2xl overflow-hidden relative group">
-            <img src="https://picsum.photos/seed/finance1/400/400" alt="Finance" className="object-cover w-full h-full group-hover:scale-110 transition-transform duration-500" referrerPolicy="no-referrer" />
-            <div className="absolute inset-0 bg-black/20" />
+        <div className="flex flex-col items-center sm:items-start gap-6">
+          <div className="flex items-center gap-6">
+            <motion.div 
+              animate={{ 
+                scale: isLocked ? [1, 1.05, 1] : 1,
+                boxShadow: isLocked 
+                  ? "0 0 20px rgba(239, 68, 68, 0.4)" 
+                  : "0 0 20px rgba(16, 185, 129, 0.4)"
+              }}
+              transition={{ repeat: isLocked ? Infinity : 0, duration: 2 }}
+              className={`w-32 h-32 rounded-full border-8 ${isLocked ? 'bg-red-500 border-red-200' : 'bg-emerald-500 border-emerald-200'} shadow-xl flex items-center justify-center transition-colors duration-500`}
+            >
+              {isLocked ? (
+                <AlertCircle className="w-12 h-12 text-white" />
+              ) : (
+                <ShieldCheck className="w-12 h-12 text-white" />
+              )}
+            </motion.div>
+            <div className="space-y-1">
+              <h3 className={`text-2xl font-bold ${isLocked ? 'text-red-600' : 'text-emerald-600'}`}>
+                Status: {isLocked ? 'Aplicativo Travado' : 'Aplicativo Liberado'}
+              </h3>
+              <p className="text-neutral-500 text-sm max-w-xs">
+                {isLocked 
+                  ? 'Apenas o administrador tem acesso ao sistema neste momento.' 
+                  : 'Todos os alunos autorizados podem acessar as avaliações.'}
+              </p>
+            </div>
           </div>
-          <div className="aspect-square bg-neutral-200 rounded-2xl overflow-hidden relative group">
-            <img src="https://picsum.photos/seed/finance2/400/400" alt="Market" className="object-cover w-full h-full group-hover:scale-110 transition-transform duration-500" referrerPolicy="no-referrer" />
-            <div className="absolute inset-0 bg-black/20" />
-          </div>
-          <div className="aspect-square bg-neutral-200 rounded-2xl overflow-hidden relative group">
-            <img src="https://picsum.photos/seed/finance3/400/400" alt="Tech" className="object-cover w-full h-full group-hover:scale-110 transition-transform duration-500" referrerPolicy="no-referrer" />
-            <div className="absolute inset-0 bg-black/20" />
-          </div>
+
+          {user && isAdmin && (
+            <button 
+              onClick={handleToggleLock}
+              className={`px-8 py-4 rounded-2xl font-bold text-lg transition-all shadow-lg flex items-center gap-3 ${isLocked ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-200' : 'bg-red-600 text-white hover:bg-red-700 shadow-red-200'}`}
+            >
+              {isLocked ? <ShieldCheck className="w-6 h-6" /> : <AlertCircle className="w-6 h-6" />}
+              {isLocked ? 'Destravar Aplicativo Agora' : 'Travar Aplicativo Agora'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -569,7 +638,7 @@ function HomeView({ user, isAdmin, setView, handleLogin, error }: any) {
   );
 }
 
-function AdminPanel({ setView }: any) {
+function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [showStudents, setShowStudents] = useState(false);
@@ -593,7 +662,9 @@ function AdminPanel({ setView }: any) {
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState<string | null>(null);
+  const [resultToDelete, setResultToDelete] = useState<string | null>(null);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+  const [isDeletingResult, setIsDeletingResult] = useState(false);
 
   const toggleSelectAllStudents = () => {
     if (selectedStudentIds.length === students.length) {
@@ -622,9 +693,18 @@ function AdminPanel({ setView }: any) {
     setShowDeleteConfirm(true);
   };
 
+  const handleDeleteResult = async (id: string) => {
+    setResultToDelete(id);
+    setIsDeletingResult(true);
+    setIsDeletingBulk(false);
+    setShowDeleteConfirm(true);
+  };
+
   const confirmDelete = async () => {
     try {
-      if (isDeletingBulk) {
+      if (isDeletingResult && resultToDelete) {
+        await deleteDoc(doc(db, 'results', resultToDelete));
+      } else if (isDeletingBulk) {
         await Promise.all(selectedStudentIds.map(id => deleteDoc(doc(db, 'students', id))));
         setSelectedStudentIds([]);
       } else if (studentToDelete) {
@@ -633,10 +713,12 @@ function AdminPanel({ setView }: any) {
       }
       setShowDeleteConfirm(false);
       setStudentToDelete(null);
+      setResultToDelete(null);
       setIsDeletingBulk(false);
+      setIsDeletingResult(false);
     } catch (err) {
-      console.error('Erro ao excluir aluno(s):', err);
-      setError('Erro ao excluir aluno(s).');
+      console.error('Erro ao excluir:', err);
+      setError('Erro ao excluir item(ns).');
     }
   };
 
@@ -937,14 +1019,12 @@ function AdminPanel({ setView }: any) {
   const [selectedResultForModal, setSelectedResultForModal] = useState<Result | null>(null);
 
   useEffect(() => {
-    if (showResults) {
-      const q = query(collection(db, 'results'), orderBy('timestamp', 'desc'));
-      const unsubscribe = onSnapshot(q, (snap) => {
-        setAllResults(snap.docs.map(d => ({ id: d.id, ...d.data() } as Result)));
-      });
-      return unsubscribe;
-    }
-  }, [showResults]);
+    const q = query(collection(db, 'results'), orderBy('timestamp', 'desc'));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      setAllResults(snap.docs.map(d => ({ id: d.id, ...d.data() } as Result)));
+    });
+    return unsubscribe;
+  }, []);
 
   return (
     <motion.div 
@@ -958,6 +1038,13 @@ function AdminPanel({ setView }: any) {
           Painel de Controle
         </h2>
         <div className="flex gap-3">
+          <button 
+            onClick={handleToggleLock}
+            className={`px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition-all shadow-sm ${isLocked ? 'bg-red-100 text-red-600 hover:bg-red-200' : 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200'}`}
+          >
+            {isLocked ? <AlertCircle className="w-5 h-5" /> : <ShieldCheck className="w-5 h-5" />}
+            {isLocked ? 'Destravar App' : 'Travar App'}
+          </button>
           <button 
             onClick={() => {
               setShowResults(!showResults);
@@ -1031,12 +1118,22 @@ function AdminPanel({ setView }: any) {
                       {r.timestamp?.toDate ? r.timestamp.toDate().toLocaleString() : 'Recent'}
                     </td>
                     <td className="py-4 px-4">
-                      <button 
-                        onClick={() => setSelectedResultForModal(r)}
-                        className="text-emerald-600 hover:text-emerald-700 font-bold text-sm flex items-center gap-1"
-                      >
-                        <Eye className="w-4 h-4" /> Ver Relatório
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => setSelectedResultForModal(r)}
+                          className="text-emerald-600 hover:text-emerald-700 font-bold text-sm flex items-center gap-1 p-2 hover:bg-emerald-50 rounded-lg transition-all"
+                          title="Ver Relatório"
+                        >
+                          <Eye className="w-4 h-4" /> Ver Relatório
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteResult(r.id)}
+                          className="p-2 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                          title="Excluir Resultado"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1191,48 +1288,68 @@ function AdminPanel({ setView }: any) {
           </h3>
           
           <div className="space-y-3">
-            {assessments.map(a => (
-              <div key={a.id} className="flex items-center justify-between p-4 rounded-2xl border border-neutral-100 hover:border-emerald-200 transition-colors">
-                <div>
-                  <h4 className="font-bold">{a.title}</h4>
-                  <div className="flex items-center gap-3 text-xs text-neutral-500 mt-1">
-                    <span className="flex items-center gap-1"><Loader2 className="w-3 h-3" /> {a.timeLimit} min</span>
-                    <span className={`px-2 py-0.5 rounded-full ${a.status === 'Available' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                      {a.status === 'Available' ? 'Disponível' : 'Indisponível'}
-                    </span>
+            {assessments.map(a => {
+              const assessmentResults = allResults.filter(r => r.assessmentId === a.id);
+              const submissionCount = assessmentResults.length;
+              const lastSubmission = assessmentResults[0]; // Already ordered by desc timestamp
+              const isRecentlySubmitted = lastSubmission && 
+                lastSubmission.timestamp?.toDate && 
+                (new Date().getTime() - lastSubmission.timestamp.toDate().getTime()) < 300000; // 5 minutes
+
+              return (
+                <div key={a.id} className="flex items-center justify-between p-4 rounded-2xl border border-neutral-100 hover:border-emerald-200 transition-colors">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-bold">{a.title}</h4>
+                      {isRecentlySubmitted && (
+                        <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full animate-pulse">
+                          <span className="w-1.5 h-1.5 bg-emerald-600 rounded-full"></span>
+                          LIVE
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-neutral-500 mt-1">
+                      <span className="flex items-center gap-1"><Loader2 className="w-3 h-3" /> {a.timeLimit} min</span>
+                      <span className={`px-2 py-0.5 rounded-full ${a.status === 'Available' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                        {a.status === 'Available' ? 'Disponível' : 'Indisponível'}
+                      </span>
+                      <span className="flex items-center gap-1 font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                        <CheckCircle className="w-3 h-3" /> {submissionCount} {submissionCount === 1 ? 'entregue' : 'entregues'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => generateDefaultAssessment(a)} 
+                      disabled={isGeneratingDefault && selectedAssessmentForDefault?.id === a.id}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-neutral-100 text-neutral-700 rounded-lg text-xs font-bold hover:bg-neutral-200 transition-all disabled:opacity-50"
+                      title="Gerar Avaliação Default para Impressão"
+                    >
+                      {isGeneratingDefault && selectedAssessmentForDefault?.id === a.id ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Printer className="w-3 h-3" />
+                      )}
+                      Avaliação Default
+                    </button>
+                    <button 
+                      onClick={() => openEditModal(a)} 
+                      className="p-2 text-neutral-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                      title="Editar Avaliação"
+                    >
+                      <Edit className="w-5 h-5" />
+                    </button>
+                    <button 
+                      onClick={() => deleteAssessment(a.id)} 
+                      className="p-2 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                      title="Excluir Avaliação"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                    </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button 
-                    onClick={() => generateDefaultAssessment(a)} 
-                    disabled={isGeneratingDefault && selectedAssessmentForDefault?.id === a.id}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-neutral-100 text-neutral-700 rounded-lg text-xs font-bold hover:bg-neutral-200 transition-all disabled:opacity-50"
-                    title="Gerar Avaliação Default para Impressão"
-                  >
-                    {isGeneratingDefault && selectedAssessmentForDefault?.id === a.id ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <Printer className="w-3 h-3" />
-                    )}
-                    Avaliação Default
-                  </button>
-                  <button 
-                    onClick={() => openEditModal(a)} 
-                    className="p-2 text-neutral-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
-                    title="Editar Avaliação"
-                  >
-                    <Edit className="w-5 h-5" />
-                  </button>
-                  <button 
-                    onClick={() => deleteAssessment(a.id)} 
-                    className="p-2 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                    title="Excluir Avaliação"
-                  >
-                    <Trash2 className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
             {assessments.length === 0 && (
               <div className="text-center py-12 text-neutral-400">
                 Nenhuma avaliação criada ainda.
@@ -1453,7 +1570,9 @@ function AdminPanel({ setView }: any) {
                 <p className="text-neutral-500">
                   {isDeletingBulk 
                     ? `Tem certeza que deseja excluir ${selectedStudentIds.length} alunos selecionados? Esta ação não pode ser desfeita.`
-                    : 'Tem certeza que deseja excluir este aluno? Esta ação não pode ser desfeita.'}
+                    : isDeletingResult 
+                      ? 'Tem certeza que deseja excluir este resultado? Esta ação não pode ser desfeita.'
+                      : 'Tem certeza que deseja excluir este aluno? Esta ação não pode ser desfeita.'}
                 </p>
               </div>
 
@@ -1468,7 +1587,9 @@ function AdminPanel({ setView }: any) {
                   onClick={() => {
                     setShowDeleteConfirm(false);
                     setStudentToDelete(null);
+                    setResultToDelete(null);
                     setIsDeletingBulk(false);
+                    setIsDeletingResult(false);
                   }}
                   className="flex-1 bg-neutral-100 text-neutral-600 py-3 rounded-xl font-bold hover:bg-neutral-200 transition-all"
                 >

@@ -8,13 +8,18 @@ service cloud.firestore {
     
     function isAdmin() {
       return isAuthenticated() && 
-        (request.auth.token.email.lower() == "admin@urca.br" || 
-         request.auth.token.email.lower() == "rama.lucas@urca.br");
+        (request.auth.token.email.lower() == "rama.lucas@urca.br");
     }
 
     // Config access (authorized emails)
     match /config/access {
       allow read: if true; // Needed for login check
+      allow write: if isAdmin();
+    }
+
+    // App settings (lock state)
+    match /config/settings {
+      allow read: if true;
       allow write: if isAdmin();
     }
 
