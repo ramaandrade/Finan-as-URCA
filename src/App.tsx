@@ -205,8 +205,9 @@ export default function App() {
         const locked = docSnap.data().isLocked || false;
         setIsLocked(locked);
         
-        // If app becomes locked and current user is not admin, redirect to home and show error
-        if (locked && user && !isAdmin) {
+        // If app becomes locked and current user is not admin or tester, redirect to home and show error
+        const isTester = user?.email?.toLowerCase() === 'maria@urca.br';
+        if (locked && user && !isAdmin && !isTester) {
           setView('home');
           setError('O aplicativo foi travado pelo administrador.');
         }
@@ -266,21 +267,22 @@ export default function App() {
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const email = formData.get('email') as string;
-    const password = formData.get('password') as string;
+    const email = (formData.get('email') as string || '').trim();
+    const password = (formData.get('password') as string || '').trim();
 
     try {
       setError(null);
-      // Check if authorized (unless admin)
+      // Check if authorized (unless admin or tester)
       const lowerEmail = email.toLowerCase();
       const isSystemAdmin = lowerEmail === 'rama.lucas@urca.br';
+      const isTester = lowerEmail === 'maria@urca.br';
       
       // Check App Lock
-      if (isLocked && !isSystemAdmin) {
+      if (isLocked && !isSystemAdmin && !isTester) {
         throw new Error('O aplicativo está travado no momento. Apenas o administrador tem acesso.');
       }
 
-      if (!isSystemAdmin && !authorizedEmails.includes(email)) {
+      if (!isSystemAdmin && !isTester && !authorizedEmails.includes(email)) {
         throw new Error('E-mail não autorizado para acesso.');
       }
 
@@ -289,10 +291,17 @@ export default function App() {
       } catch (err: any) {
         if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
           // Try to create the user if authorized and using the default password
-          if (password === '430798@R') {
-            await createUserWithEmailAndPassword(auth, email, password);
+          if (password === '430798@R' || (isTester && password === '123456')) {
+            try {
+              await createUserWithEmailAndPassword(auth, email, password);
+            } catch (createErr: any) {
+              if (createErr.code === 'auth/email-already-in-use') {
+                throw new Error('Credenciais inválidas para este e-mail. Verifique se a senha está correta ou se a conta já foi criada com outra senha.');
+              }
+              throw createErr;
+            }
           } else {
-            throw new Error('Credenciais inválidas.');
+            throw new Error('Credenciais inválidas. Verifique o e-mail e a senha digitados.');
           }
         } else {
           throw err;
