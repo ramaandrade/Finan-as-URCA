@@ -30,7 +30,8 @@ import {
   X,
   Book,
   FileCheck,
-  Upload
+  Upload,
+  Award
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -166,6 +167,7 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [authorizedEmails, setAuthorizedEmails] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isGeneratingAssessment, setIsGeneratingAssessment] = useState(false);
   const [view, setView] = useState<'home' | 'admin' | 'student' | 'test' | 'result'>('home');
   const [currentAssessment, setCurrentAssessment] = useState<Assessment | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -332,6 +334,7 @@ export default function App() {
 
   const startAssessment = async (assessment: Assessment) => {
     setLoading(true);
+    setIsGeneratingAssessment(true);
     setError(null);
     setIsInvalidated(false);
     const qCount = assessment.questionCount || 5;
@@ -393,6 +396,7 @@ export default function App() {
       setError('Erro ao gerar a prova com IA. Por favor, tente novamente.');
     } finally {
       setLoading(false);
+      setIsGeneratingAssessment(false);
     }
   };
 
@@ -445,8 +449,30 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-neutral-50 flex items-center justify-center">
-        <Loader2 className="w-12 h-12 text-emerald-600 animate-spin" />
+      <div className="min-h-screen bg-neutral-50 flex flex-col items-center justify-center p-6 text-center">
+        <div className="relative mb-8">
+          <div className="w-24 h-24 border-4 border-emerald-100 border-t-emerald-600 rounded-full animate-spin"></div>
+          <TrendingUp className="w-10 h-10 text-emerald-600 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+        </div>
+        
+        {isGeneratingAssessment ? (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-4"
+          >
+            <h2 className="text-2xl font-bold text-neutral-900">Elaborando sua Avaliação...</h2>
+            <p className="text-neutral-500 max-w-sm mx-auto">
+              Por favor, aguarde um momento. Nossa IA está preparando questões exclusivas baseadas no material de estudo.
+            </p>
+            <div className="flex items-center justify-center gap-2 text-emerald-600 font-medium">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Analisando base de conhecimento</span>
+            </div>
+          </motion.div>
+        ) : (
+          <Loader2 className="w-12 h-12 text-emerald-600 animate-spin" />
+        )}
       </div>
     );
   }
@@ -477,6 +503,15 @@ export default function App() {
                   <User className="w-4 h-4" />
                   {user.email}
                 </div>
+                {!isAdmin && (view === 'test' || view === 'result') && (
+                  <button 
+                    onClick={() => setView('student')}
+                    className="flex items-center gap-2 px-4 py-2 bg-emerald-100 text-emerald-600 rounded-xl font-bold hover:bg-emerald-200 transition-all shadow-sm"
+                  >
+                    <LayoutDashboard className="w-4 h-4" />
+                    Ir para o Painel
+                  </button>
+                )}
                 {isAdmin && (
                   <button 
                     onClick={() => setView('admin')}
@@ -510,7 +545,7 @@ export default function App() {
         <AnimatePresence mode="wait">
           {view === 'home' && <HomeView user={user} isAdmin={isAdmin} setView={setView} handleLogin={handleLogin} error={error} isLocked={isLocked} handleToggleLock={handleToggleLock} />}
           {view === 'admin' && isAdmin && <AdminPanel setView={setView} isLocked={isLocked} handleToggleLock={handleToggleLock} />}
-          {view === 'student' && user && <StudentPanel startAssessment={startAssessment} error={error} />}
+          {view === 'student' && user && <StudentPanel user={user} startAssessment={startAssessment} error={error} />}
           {view === 'test' && (
             <TestView 
               questions={questions} 
@@ -520,6 +555,7 @@ export default function App() {
               setAnswers={setStudentAnswers}
               timeLeft={timeLeft}
               onFinish={finishTest}
+              onExit={() => setView('student')}
             />
           )}
           {view === 'result' && testResult && <ResultView result={testResult} setView={setView} />}
@@ -1957,8 +1993,9 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
   );
 }
 
-function StudentPanel({ startAssessment, error }: any) {
+function StudentPanel({ user, startAssessment, error }: any) {
   const [assessments, setAssessments] = useState<Assessment[]>([]);
+  const [userResults, setUserResults] = useState<Result[]>([]);
   const [selectedAssessmentForReview, setSelectedAssessmentForReview] = useState<Assessment | null>(null);
   const [generatedPracticeExercise, setGeneratedPracticeExercise] = useState<any>(null);
   const [isGeneratingPractice, setIsGeneratingPractice] = useState(false);
@@ -2134,8 +2171,17 @@ function StudentPanel({ startAssessment, error }: any) {
     const unsubscribe = onSnapshot(q, (snap) => {
       setAssessments(snap.docs.map(d => ({ id: d.id, ...d.data() } as Assessment)));
     });
-    return unsubscribe;
-  }, []);
+
+    const resultsQuery = query(collection(db, 'results'), where('email', '==', user.email));
+    const unsubscribeResults = onSnapshot(resultsQuery, (snap) => {
+      setUserResults(snap.docs.map(d => ({ id: d.id, ...d.data() } as Result)));
+    });
+
+    return () => {
+      unsubscribe();
+      unsubscribeResults();
+    };
+  }, [user.email]);
 
   return (
     <motion.div 
@@ -2179,15 +2225,22 @@ function StudentPanel({ startAssessment, error }: any) {
               </button>
               
               <div className="mt-2 space-y-3">
-                <button 
-                  onClick={() => startAssessment(a)}
-                  className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200/50 active:scale-[0.98]"
-                >
-                  Iniciar Avaliação <ChevronRight className="w-4 h-4" />
-                </button>
+                {userResults.some(r => r.assessmentId === a.id) ? (
+                  <div className="w-full bg-neutral-100 text-neutral-400 py-4 rounded-xl font-bold flex items-center justify-center gap-2 cursor-not-allowed">
+                    <CheckCircle2 className="w-4 h-4" /> Avaliação Realizada
+                  </div>
+                ) : (
+                  <button 
+                    onClick={() => startAssessment(a)}
+                    className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200/50 active:scale-[0.98]"
+                  >
+                    Iniciar Avaliação <ChevronRight className="w-4 h-4" />
+                  </button>
+                )}
                 <div className="flex items-center justify-center gap-4 text-xs text-neutral-400">
                   <span className="flex items-center gap-1"><Loader2 className="w-3 h-3" /> {a.timeLimit} min</span>
                   <span className="flex items-center gap-1"><FileText className="w-3 h-3" /> {a.questionCount || 5} Questões</span>
+                  <span className="flex items-center gap-1"><Award className="w-3 h-3" /> {a.pointsPerQuestion || 2} Pontos/Q</span>
                 </div>
               </div>
             </div>
@@ -2407,7 +2460,7 @@ function StudentPanel({ startAssessment, error }: any) {
   );
 }
 
-function TestView({ questions, currentIndex, setCurrentIndex, answers, setAnswers, timeLeft, onFinish }: any) {
+function TestView({ questions, currentIndex, setCurrentIndex, answers, setAnswers, timeLeft, onFinish, onExit }: any) {
   const q = questions[currentIndex];
   
   const formatTime = (seconds: number) => {
@@ -2424,6 +2477,14 @@ function TestView({ questions, currentIndex, setCurrentIndex, answers, setAnswer
     >
       <div className="flex items-center justify-between bg-white px-6 py-4 rounded-2xl shadow-sm border border-neutral-100 sticky top-20 z-40">
         <div className="flex items-center gap-4">
+          <button 
+            onClick={onExit}
+            className="p-2 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all flex items-center gap-1"
+            title="Sair da Avaliação"
+          >
+            <X className="w-5 h-5" />
+            <span className="text-xs font-bold uppercase">Sair</span>
+          </button>
           <span className="text-sm font-bold text-neutral-500">Questão {currentIndex + 1} de {questions.length}</span>
           <div className="w-32 h-2 bg-neutral-100 rounded-full overflow-hidden">
             <div className="h-full bg-emerald-500 transition-all" style={{ width: `${((currentIndex + 1) / questions.length) * 100}%` }} />
