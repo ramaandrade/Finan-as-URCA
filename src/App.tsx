@@ -31,9 +31,11 @@ import {
   Book,
   FileCheck,
   Upload,
-  Award
+  Award,
+  Settings
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import ReactMarkdown from 'react-markdown';
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
   collection, 
@@ -725,10 +727,21 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
   const [newStudentEmail, setNewStudentEmail] = useState('');
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showVisibilityModal, setShowVisibilityModal] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState<string | null>(null);
   const [resultToDelete, setResultToDelete] = useState<string | null>(null);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
   const [isDeletingResult, setIsDeletingResult] = useState(false);
+
+  const toggleVisibility = async (id: string, currentStatus: 'Available' | 'Unavailable') => {
+    try {
+      const newStatus = currentStatus === 'Available' ? 'Unavailable' : 'Available';
+      await updateDoc(doc(db, 'assessments', id), { status: newStatus });
+    } catch (err) {
+      console.error('Erro ao alternar visibilidade:', err);
+      setError('Erro ao alternar visibilidade da avaliação.');
+    }
+  };
 
   const toggleSelectAllStudents = () => {
     if (selectedStudentIds.length === students.length) {
@@ -1135,6 +1148,13 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
             Alunos
           </button>
           <button 
+            onClick={() => setShowVisibilityModal(true)}
+            className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-all"
+          >
+            <Settings className="w-5 h-5" />
+            Gerenciar Temas
+          </button>
+          <button 
             onClick={openAddModal}
             className="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-emerald-700 transition-all"
           >
@@ -1435,6 +1455,79 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
             )}
           </div>
         </div>
+      </div>
+    )}
+
+    {/* Visibility Management Modal */}
+    {showVisibilityModal && (
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
+        <motion.div 
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="bg-white w-full max-w-2xl rounded-3xl p-8 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto"
+        >
+          <div className="flex items-center justify-between">
+            <h3 className="text-2xl font-bold">Gerenciar Temas Disponíveis</h3>
+            <button 
+              onClick={() => setShowVisibilityModal(false)}
+              className="p-2 hover:bg-neutral-100 rounded-full transition-colors"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+          
+          <p className="text-neutral-500">
+            Selecione quais temas estarão visíveis para os alunos no Portal do Aluno/a.
+          </p>
+
+          <div className="space-y-3">
+            {assessments.map(a => (
+              <label 
+                key={a.id} 
+                className={`flex items-center justify-between p-4 rounded-2xl border-2 transition-all cursor-pointer ${
+                  a.status === 'Available' 
+                  ? 'border-emerald-500 bg-emerald-50' 
+                  : 'border-neutral-100 hover:border-neutral-200'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                    a.status === 'Available' ? 'bg-emerald-100 text-emerald-600' : 'bg-neutral-100 text-neutral-400'
+                  }`}>
+                    <BookOpen className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="font-bold block">{a.title}</span>
+                    <span className="text-xs text-neutral-500">
+                      {a.questionCount || 5} questões • {a.timeLimit} min
+                    </span>
+                  </div>
+                </div>
+                <div className="relative inline-flex items-center cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    className="sr-only peer"
+                    checked={a.status === 'Available'}
+                    onChange={() => toggleVisibility(a.id, a.status)}
+                  />
+                  <div className="w-11 h-6 bg-neutral-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                </div>
+              </label>
+            ))}
+            {assessments.length === 0 && (
+              <div className="text-center py-12 text-neutral-400">Nenhum tema criado ainda.</div>
+            )}
+          </div>
+
+          <div className="pt-4">
+            <button 
+              onClick={() => setShowVisibilityModal(false)}
+              className="w-full bg-neutral-900 text-white py-4 rounded-xl font-bold hover:bg-neutral-800 transition-all"
+            >
+              Concluir
+            </button>
+          </div>
+        </motion.div>
       </div>
     )}
 
@@ -2001,6 +2094,9 @@ function StudentPanel({ user, startAssessment, error }: any) {
   const [isGeneratingPractice, setIsGeneratingPractice] = useState(false);
   const [studentPracticeAnswers, setStudentPracticeAnswers] = useState<string[]>([]);
   const [showPracticeResult, setShowPracticeResult] = useState(false);
+  const [viewingGlossary, setViewingGlossary] = useState<Assessment | null>(null);
+  const [glossaryContent, setGlossaryContent] = useState<string>('');
+  const [isExtractingGlossary, setIsExtractingGlossary] = useState(false);
 
   const TEMA_1_EXERCISE = {
     columnA: [
@@ -2166,8 +2262,63 @@ function StudentPanel({ user, startAssessment, error }: any) {
     }
   };
 
+  const handleOpenGlossary = async (assessment: Assessment) => {
+    if (!assessment.glossaryUrl) return;
+    
+    setViewingGlossary(assessment);
+    setGlossaryContent('');
+    setIsExtractingGlossary(true);
+    
+    try {
+      let content = '';
+      const base64Data = assessment.glossaryUrl.split(',')[1];
+      const binaryData = atob(base64Data);
+      const arrayBuffer = new ArrayBuffer(binaryData.length);
+      const view = new Uint8Array(arrayBuffer);
+      for (let i = 0; i < binaryData.length; i++) {
+        view[i] = binaryData.charCodeAt(i);
+      }
+
+      if (assessment.glossaryUrl.includes('application/pdf')) {
+        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+        const pdf = await loadingTask.promise;
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          content += textContent.items.map((item: any) => item.str || '').join(' ') + '\n';
+        }
+      } else {
+        content = new TextDecoder().decode(arrayBuffer);
+      }
+
+      // Use Gemini to format the extracted text as Markdown
+      const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const response = await genAI.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: `Transforme o seguinte texto bruto em um glossário formatado em Markdown elegante. 
+        Use cabeçalhos (#, ##), listas com marcadores (-) e negrito (**termo**) para os termos. 
+        Mantenha o conteúdo fiel ao original, mas organize-o de forma clara e legível.
+        
+        REGRAS IMPORTANTES:
+        - Retorne APENAS o conteúdo em Markdown.
+        - NÃO inclua textos introdutórios como "Aqui está o glossário..." ou "Espero que ajude...".
+        - Comece diretamente com o título ou o primeiro termo.
+        
+        Texto original:
+        "${content}"`,
+      });
+
+      setGlossaryContent(response.text || content);
+    } catch (err) {
+      console.error('Erro ao carregar glossário:', err);
+      setGlossaryContent('Não foi possível carregar o conteúdo do glossário.');
+    } finally {
+      setIsExtractingGlossary(false);
+    }
+  };
+
   useEffect(() => {
-    const q = query(collection(db, 'assessments'), where('status', '==', 'Available'));
+    const q = query(collection(db, 'assessments'));
     const unsubscribe = onSnapshot(q, (snap) => {
       setAssessments(snap.docs.map(d => ({ id: d.id, ...d.data() } as Assessment)));
     });
@@ -2196,7 +2347,7 @@ function StudentPanel({ user, startAssessment, error }: any) {
         </div>
       )}
       <div className="space-y-2">
-        <h2 className="text-3xl font-bold">Avaliações Disponíveis</h2>
+        <h2 className="text-3xl font-bold">Portal do Aluno/a</h2>
         <p className="text-neutral-500">Selecione uma avaliação para iniciar seu teste.</p>
       </div>
 
@@ -2209,13 +2360,12 @@ function StudentPanel({ user, startAssessment, error }: any) {
             <h3 className="text-xl font-bold mb-6">{a.title}</h3>
             <div className="flex flex-col gap-2">
               {a.glossaryUrl && (
-                <a 
-                  href={a.glossaryUrl}
-                  download={a.glossaryName || 'glossario.pdf'}
+                <button 
+                  onClick={() => handleOpenGlossary(a)}
                   className="w-full bg-blue-50 text-blue-700 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-blue-100 transition-colors"
                 >
-                  <Download className="w-4 h-4" /> Glossário
-                </a>
+                  <Book className="w-4 h-4" /> Glossário
+                </button>
               )}
               <button 
                 onClick={() => handleOpenReview(a)}
@@ -2228,6 +2378,10 @@ function StudentPanel({ user, startAssessment, error }: any) {
                 {userResults.some(r => r.assessmentId === a.id) ? (
                   <div className="w-full bg-neutral-100 text-neutral-400 py-4 rounded-xl font-bold flex items-center justify-center gap-2 cursor-not-allowed">
                     <CheckCircle2 className="w-4 h-4" /> Avaliação Realizada
+                  </div>
+                ) : a.status === 'Unavailable' ? (
+                  <div className="w-full bg-red-50 text-red-400 py-4 rounded-xl font-bold flex items-center justify-center gap-2 cursor-not-allowed border border-red-100">
+                    <AlertCircle className="w-4 h-4" /> Avaliação Indisponível
                   </div>
                 ) : (
                   <button 
@@ -2451,6 +2605,68 @@ function StudentPanel({ user, startAssessment, error }: any) {
                 className="bg-neutral-900 text-white px-8 py-3 rounded-xl font-bold hover:bg-neutral-800 transition-all whitespace-nowrap"
               >
                 Fechar Revisão
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Glossary Modal */}
+      {viewingGlossary && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
+          >
+            <div className="p-8 border-b border-neutral-100 flex items-center justify-between bg-white sticky top-0 z-10">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-blue-100 rounded-2xl flex items-center justify-center">
+                  <Book className="w-6 h-6 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold text-neutral-900">Glossário: {viewingGlossary.title}</h3>
+                  <p className="text-sm text-neutral-500">Conteúdo de apoio para estudo</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setViewingGlossary(null)}
+                className="p-3 hover:bg-neutral-100 rounded-2xl transition-all"
+              >
+                <X className="w-6 h-6 text-neutral-400" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-8 bg-neutral-50/30">
+              {isExtractingGlossary ? (
+                <div className="flex flex-col items-center justify-center py-20 space-y-4">
+                  <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+                  <p className="text-neutral-500 font-medium">Carregando conteúdo do glossário...</p>
+                </div>
+              ) : (
+                <div className="bg-white p-8 rounded-3xl border border-neutral-100 shadow-sm">
+                  <div className="markdown-body prose prose-neutral max-w-none font-sans text-neutral-700 leading-relaxed">
+                    <ReactMarkdown
+                      components={{
+                        h1: ({node, ...props}) => <h1 className="text-blue-700 font-bold text-3xl mb-6 border-b pb-2 border-blue-100" {...props} />,
+                        h2: ({node, ...props}) => <h2 className="text-emerald-700 font-bold text-2xl mb-4 mt-8" {...props} />,
+                        h3: ({node, ...props}) => <h3 className="text-amber-700 font-bold text-xl mb-3 mt-6" {...props} />,
+                        strong: ({node, ...props}) => <strong className="text-neutral-900 font-bold" {...props} />,
+                      }}
+                    >
+                      {glossaryContent || 'Nenhum conteúdo encontrado no glossário.'}
+                    </ReactMarkdown>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-8 border-t border-neutral-100 bg-white flex justify-end">
+              <button 
+                onClick={() => setViewingGlossary(null)}
+                className="bg-neutral-900 text-white px-10 py-4 rounded-2xl font-bold hover:bg-neutral-800 transition-all shadow-lg hover:shadow-neutral-200"
+              >
+                Fechar Glossário
               </button>
             </div>
           </motion.div>
