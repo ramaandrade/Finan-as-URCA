@@ -25,14 +25,24 @@ service cloud.firestore {
 
     // Assessments
     match /assessments/{assessmentId} {
-      allow read: if true; // Students need to read to take the test
-      allow write: if isAdmin();
+      allow read: if true;
+      allow write: if isAdmin() && 
+        request.resource.data.title is string &&
+        request.resource.data.baseText is string &&
+        request.resource.data.timeLimit is int &&
+        request.resource.data.questionCount is int &&
+        request.resource.data.pointsPerQuestion is number;
     }
 
     // Results
     match /results/{resultId} {
-      allow create: if true; // Students submit results
-      allow read: if isAdmin();
+      allow create: if isAuthenticated() &&
+        request.resource.data.email == request.auth.token.email &&
+        request.resource.data.score is number &&
+        request.resource.data.pointsPerQuestion is number &&
+        request.resource.data.answers is list &&
+        request.resource.data.questions is list;
+      allow read: if isAdmin() || (isAuthenticated() && request.auth.token.email == resource.data.email);
       allow update, delete: if isAdmin();
     }
 

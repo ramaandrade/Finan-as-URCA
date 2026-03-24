@@ -21,10 +21,16 @@
         "title": { "type": "string" },
         "baseText": { "type": "string", "description": "The content extracted from PDF/TXT." },
         "timeLimit": { "type": "integer", "description": "Time in minutes." },
+        "questionCount": { "type": "integer", "description": "Number of questions." },
+        "pointsPerQuestion": { "type": "number", "description": "Points awarded per correct answer." },
         "status": { "type": "string", "enum": ["Available", "Unavailable"] },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "createdAt": { "type": "string", "format": "date-time" },
+        "exerciseUrl": { "type": "string", "description": "Base64 or URL of the exercise file." },
+        "exerciseName": { "type": "string", "description": "Name of the exercise file." },
+        "glossaryUrl": { "type": "string", "description": "Base64 or URL of the glossary file." },
+        "glossaryName": { "type": "string", "description": "Name of the glossary file." }
       },
-      "required": ["title", "baseText", "timeLimit", "status"]
+      "required": ["title", "baseText", "timeLimit", "questionCount", "pointsPerQuestion", "status"]
     },
     "Result": {
       "title": "Result",
@@ -33,12 +39,14 @@
       "properties": {
         "email": { "type": "string" },
         "assessmentId": { "type": "string" },
+        "assessmentTitle": { "type": "string" },
         "score": { "type": "number" },
+        "pointsPerQuestion": { "type": "number" },
         "answers": { "type": "array" },
-        "summary": { "type": "string" },
+        "questions": { "type": "array" },
         "timestamp": { "type": "string", "format": "date-time" }
       },
-      "required": ["email", "assessmentId", "score", "answers", "timestamp"]
+      "required": ["email", "assessmentId", "assessmentTitle", "score", "pointsPerQuestion", "answers", "questions", "timestamp"]
     },
     "Student": {
       "title": "Student",

@@ -16,6 +16,7 @@ import {
   ChevronRight, 
   ChevronLeft, 
   CheckCircle, 
+  CheckCircle2,
   AlertCircle,
   Download,
   Loader2,
@@ -25,7 +26,11 @@ import {
   Wallet,
   Coins,
   Eye,
-  Printer
+  Printer,
+  X,
+  Book,
+  FileCheck,
+  Upload
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -115,9 +120,16 @@ interface Assessment {
   title: string;
   baseText: string;
   timeLimit: number;
+  questionCount: number;
+  pointsPerQuestion: number;
   status: 'Available' | 'Unavailable';
   createdAt: any;
   updatedAt?: any;
+  exerciseUrl?: string;
+  exerciseName?: string;
+  glossaryUrl?: string;
+  glossaryName?: string;
+  practiceExercise?: any;
 }
 
 interface Question {
@@ -133,6 +145,7 @@ interface Result {
   assessmentId: string;
   assessmentTitle: string;
   score: number;
+  pointsPerQuestion: number;
   answers: number[];
   questions: Question[];
   timestamp: any;
@@ -321,17 +334,18 @@ export default function App() {
     setLoading(true);
     setError(null);
     setIsInvalidated(false);
+    const qCount = assessment.questionCount || 5;
     try {
       const prompt = `Você é um professor universitário de Finanças na URCA. 
-      Sua tarefa é elaborar uma avaliação rigorosa de 5 questões de múltipla escolha para o aluno logado.
+      Sua tarefa é elaborar uma avaliação rigorosa de ${qCount} questões de múltipla escolha para o aluno logado.
       
       BASE DE CONHECIMENTO:
       ${assessment.baseText}
       
       DIRETRIZES:
-      1. Gere exatamente 5 questões.
+      1. Gere exatamente ${qCount} questões.
       2. Use estudos de caso reais, exemplos práticos de finanças e análises profundas baseadas no texto fornecido.
-      3. Cada questão deve ter 4 opções (A, B, C, D).
+      3. Cada questão deve ter 4 opções. Não inclua prefixos como "A) " ou "B) " nas opções, pois a interface já os adiciona.
       4. Forneça uma explicação detalhada para a resposta correta.
       5. O nível de dificuldade deve ser desafiador.
       6. Certifique-se de que esta avaliação seja ÚNICA e DIFERENTE de versões anteriores, explorando diversos ângulos do texto base.
@@ -385,16 +399,20 @@ export default function App() {
   const finishTest = async () => {
     if (!currentAssessment || !user) return;
 
-    let score = 0;
+    let correctCount = 0;
     questions.forEach((q, i) => {
-      if (studentAnswers[i] === q.correctIndex) score += 1;
+      if (studentAnswers[i] === q.correctIndex) correctCount += 1;
     });
+
+    const pointsPerQuestion = currentAssessment.pointsPerQuestion || 2;
+    const score = correctCount * pointsPerQuestion;
 
     const resultData: Omit<Result, 'id'> = {
       email: user.email!,
       assessmentId: currentAssessment.id,
       assessmentTitle: currentAssessment.title,
-      score: score * 0.4,
+      score: score,
+      pointsPerQuestion: pointsPerQuestion,
       answers: studentAnswers,
       questions: questions,
       timestamp: serverTimestamp()
@@ -654,7 +672,7 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
   const [emailsText, setEmailsText] = useState('');
   const [isEditingAccess, setIsEditingAccess] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newAssessment, setNewAssessment] = useState({ title: '', baseText: '', timeLimit: 30, status: 'Available' as 'Available' | 'Unavailable' });
+  const [newAssessment, setNewAssessment] = useState({ title: '', baseText: '', timeLimit: 30, questionCount: 5, pointsPerQuestion: 2, status: 'Available' as 'Available' | 'Unavailable' });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -663,6 +681,7 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
   const [defaultQuestions, setDefaultQuestions] = useState<Question[]>([]);
   const [isGeneratingDefault, setIsGeneratingDefault] = useState(false);
   const [selectedAssessmentForDefault, setSelectedAssessmentForDefault] = useState<Assessment | null>(null);
+  const [selectedAssessmentForReview, setSelectedAssessmentForReview] = useState<Assessment | null>(null);
 
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [showEditStudentModal, setShowEditStudentModal] = useState(false);
@@ -763,22 +782,24 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
   const generateDefaultAssessment = async (assessment: Assessment) => {
     setIsGeneratingDefault(true);
     setSelectedAssessmentForDefault(assessment);
+    const qCount = assessment.questionCount || 5;
     try {
-      const prompt = `Crie uma avaliação de 5 questões de múltipla escolha baseada no seguinte texto sobre finanças: "${assessment.baseText.substring(0, 15000)}".
+      const prompt = `Crie uma avaliação de ${qCount} questões de múltipla escolha baseada no seguinte texto sobre finanças: "${assessment.baseText.substring(0, 15000)}".
       
       DIRETRIZES DE CONTEÚDO CRÍTICAS:
       1. As questões devem ser REFLEXIVAS e ANALÍTICAS, fugindo da simples memorização.
       2. Utilize EXEMPLOS PRÁTICOS ou ESTUDOS DE CASO curtos em cada questão para contextualizar o problema.
       3. O nível de dificuldade deve ser ALTO (nível universitário), exigindo que o aluno aplique os conceitos do texto em situações reais.
-      4. Cada questão deve ter exatamente 5 alternativas (A, B, C, D, E).
+      4. Cada questão deve ter exatamente 4 alternativas. Não inclua prefixos como "A) " ou "B) " nas opções, pois a interface já os adiciona.
       5. Forneça o gabarito detalhado com uma breve explicação para cada resposta correta.
+      6. Gere exatamente ${qCount} questões.
       
       FORMATO DE RETORNO (JSON):
       Retorne APENAS um array JSON no seguinte formato:
       [
         {
           "question": "Texto da questão com o estudo de caso...",
-          "options": ["A) ...", "B) ...", "C) ...", "D) ...", "E) ..."],
+          "options": ["Texto da opção 1", "Texto da opção 2", "Texto da opção 3", "Texto da opção 4"],
           "correctIndex": 0,
           "explanation": "Explicação do porquê esta é a resposta correta com base no texto e no caso."
         }
@@ -811,7 +832,8 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
     content += "CURSO DE CIÊNCIAS ECONÔMICAS\n";
     content += "DISCIPLINA: FINANÇAS I\n";
     content += "ALUNO/A: ________________________________________________\n";
-    content += "DATA: ____/____/_______\n\n";
+    content += "DATA: ____/____/_______\n";
+    content += `VALOR: ${(selectedAssessmentForDefault.questionCount * (selectedAssessmentForDefault.pointsPerQuestion || 2)).toFixed(1)} PONTOS\n\n`;
     content += `AVALIAÇÃO: ${selectedAssessmentForDefault.title.toUpperCase()}\n\n`;
 
     defaultQuestions.forEach((q, i) => {
@@ -954,7 +976,7 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
 
   const openAddModal = () => {
     setEditingId(null);
-    setNewAssessment({ title: '', baseText: '', timeLimit: 30, status: 'Available' });
+    setNewAssessment({ title: '', baseText: '', timeLimit: 30, questionCount: 5, pointsPerQuestion: 2, status: 'Available' });
     setUploadSuccess(false);
     setError(null);
     setShowAddModal(true);
@@ -966,6 +988,8 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
       title: assessment.title,
       baseText: assessment.baseText,
       timeLimit: assessment.timeLimit,
+      questionCount: assessment.questionCount || 5,
+      pointsPerQuestion: assessment.pointsPerQuestion || 2,
       status: assessment.status
     });
     setUploadSuccess(true);
@@ -1012,7 +1036,7 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
   const closeModal = () => {
     setShowAddModal(false);
     setEditingId(null);
-    setNewAssessment({ title: '', baseText: '', timeLimit: 30, status: 'Available' });
+    setNewAssessment({ title: '', baseText: '', timeLimit: 30, questionCount: 5, pointsPerQuestion: 2, status: 'Available' });
     setUploadSuccess(false);
     setError(null);
   };
@@ -1319,6 +1343,7 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
                     </div>
                     <div className="flex items-center gap-3 text-xs text-neutral-500 mt-1">
                       <span className="flex items-center gap-1"><Loader2 className="w-3 h-3" /> {a.timeLimit} min</span>
+                      <span className="flex items-center gap-1"><FileText className="w-3 h-3" /> {a.questionCount || 5} questões ({a.pointsPerQuestion || 2} pts/q)</span>
                       <span className={`px-2 py-0.5 rounded-full ${a.status === 'Available' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
                         {a.status === 'Available' ? 'Disponível' : 'Indisponível'}
                       </span>
@@ -1328,6 +1353,14 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => setSelectedAssessmentForReview(a)}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-neutral-100 text-neutral-700 rounded-lg text-xs font-bold hover:bg-neutral-200 transition-all"
+                      title="Revisar Texto Base"
+                    >
+                      <Eye className="w-3 h-3" />
+                      Revisão
+                    </button>
                     <button 
                       onClick={() => generateDefaultAssessment(a)} 
                       disabled={isGeneratingDefault && selectedAssessmentForDefault?.id === a.id}
@@ -1397,13 +1430,35 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div className="space-y-1">
                   <label className="text-sm font-semibold">Tempo (minutos)</label>
                   <input 
                     type="number"
                     value={newAssessment.timeLimit}
                     onChange={(e) => setNewAssessment(prev => ({ ...prev, timeLimit: parseInt(e.target.value) }))}
+                    className="w-full px-4 py-3 rounded-xl border border-neutral-200 outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold">Nº Questões</label>
+                  <input 
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={newAssessment.questionCount}
+                    onChange={(e) => setNewAssessment(prev => ({ ...prev, questionCount: parseInt(e.target.value) }))}
+                    className="w-full px-4 py-3 rounded-xl border border-neutral-200 outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold">Pontos / Questão</label>
+                  <input 
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    value={newAssessment.pointsPerQuestion}
+                    onChange={(e) => setNewAssessment(prev => ({ ...prev, pointsPerQuestion: parseFloat(e.target.value) }))}
                     className="w-full px-4 py-3 rounded-xl border border-neutral-200 outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
@@ -1501,11 +1556,11 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
                 </div>
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest">Nota</span>
-                  <p className="font-bold text-emerald-600 text-lg">{selectedResultForModal.score.toFixed(1)} / 2.0</p>
+                  <p className="font-bold text-emerald-600 text-lg">{selectedResultForModal.score.toFixed(1)} / {(selectedResultForModal.questions.length * (selectedResultForModal.pointsPerQuestion || 2)).toFixed(1)}</p>
                 </div>
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest">Acertos</span>
-                  <p className="font-bold text-neutral-900 text-lg">{Math.round(selectedResultForModal.score / 0.4)}/5</p>
+                  <p className="font-bold text-neutral-900 text-lg">{Math.round(selectedResultForModal.score / (selectedResultForModal.pointsPerQuestion || 2))}/{selectedResultForModal.questions.length}</p>
                 </div>
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest">Data</span>
@@ -1663,6 +1718,153 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
         )}
       </AnimatePresence>
 
+      {/* Review Modal */}
+      {selectedAssessmentForReview && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4 no-print">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white w-full max-w-4xl max-h-[90vh] rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col"
+          >
+            <div className="p-8 border-b border-neutral-100 flex items-center justify-between bg-neutral-50/50">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-emerald-100 rounded-2xl flex items-center justify-center">
+                  <BookOpen className="w-6 h-6 text-emerald-600" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold">Revisão: {selectedAssessmentForReview.title}</h3>
+                  <p className="text-neutral-500 text-sm">Gerencie os materiais de apoio e revise o texto base.</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSelectedAssessmentForReview(null)}
+                className="p-2 hover:bg-neutral-200 rounded-full transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-8 overflow-y-auto flex-1 space-y-8">
+              {/* Support Materials Section */}
+              <div className="grid sm:grid-cols-2 gap-6">
+                {/* Exercise Upload */}
+                <div className="p-6 bg-emerald-50/50 rounded-3xl border border-emerald-100 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center">
+                      <FileCheck className="w-5 h-5 text-emerald-600" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-emerald-900">Exercício</h4>
+                      <p className="text-xs text-emerald-600">Upload de material prático</p>
+                    </div>
+                  </div>
+                  
+                  {selectedAssessmentForReview.exerciseUrl ? (
+                    <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-emerald-200">
+                      <span className="text-sm font-medium truncate max-w-[150px]">{selectedAssessmentForReview.exerciseName}</span>
+                      <button 
+                        onClick={async () => {
+                          const updated = { ...selectedAssessmentForReview, exerciseUrl: '', exerciseName: '' };
+                          await updateDoc(doc(db, 'assessments', selectedAssessmentForReview.id), { exerciseUrl: '', exerciseName: '' });
+                          setSelectedAssessmentForReview(updated);
+                        }}
+                        className="text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-emerald-200 rounded-2xl cursor-pointer hover:bg-emerald-100/50 transition-all">
+                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                        <Upload className="w-6 h-6 text-emerald-400 mb-2" />
+                        <p className="text-xs text-emerald-500 font-medium">Clique para upload</p>
+                      </div>
+                      <input 
+                        type="file" 
+                        className="hidden" 
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = async (event) => {
+                            const base64 = event.target?.result as string;
+                            const updated = { ...selectedAssessmentForReview, exerciseUrl: base64, exerciseName: file.name };
+                            await updateDoc(doc(db, 'assessments', selectedAssessmentForReview.id), { exerciseUrl: base64, exerciseName: file.name });
+                            setSelectedAssessmentForReview(updated);
+                          };
+                          reader.readAsDataURL(file);
+                        }}
+                      />
+                    </label>
+                  )}
+                </div>
+
+                {/* Glossary Upload */}
+                <div className="p-6 bg-blue-50/50 rounded-3xl border border-blue-100 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+                      <Book className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-blue-900">Glossário</h4>
+                      <p className="text-xs text-blue-600">Termos e definições</p>
+                    </div>
+                  </div>
+
+                  {selectedAssessmentForReview.glossaryUrl ? (
+                    <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-blue-200">
+                      <span className="text-sm font-medium truncate max-w-[150px]">{selectedAssessmentForReview.glossaryName}</span>
+                      <button 
+                        onClick={async () => {
+                          const updated = { ...selectedAssessmentForReview, glossaryUrl: '', glossaryName: '' };
+                          await updateDoc(doc(db, 'assessments', selectedAssessmentForReview.id), { glossaryUrl: '', glossaryName: '' });
+                          setSelectedAssessmentForReview(updated);
+                        }}
+                        className="text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-blue-200 rounded-2xl cursor-pointer hover:bg-blue-100/50 transition-all">
+                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                        <Upload className="w-6 h-6 text-blue-400 mb-2" />
+                        <p className="text-xs text-blue-500 font-medium">Clique para upload</p>
+                      </div>
+                      <input 
+                        type="file" 
+                        className="hidden" 
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = async (event) => {
+                            const base64 = event.target?.result as string;
+                            const updated = { ...selectedAssessmentForReview, glossaryUrl: base64, glossaryName: file.name };
+                            await updateDoc(doc(db, 'assessments', selectedAssessmentForReview.id), { glossaryUrl: base64, glossaryName: file.name });
+                            setSelectedAssessmentForReview(updated);
+                          };
+                          reader.readAsDataURL(file);
+                        }}
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-8 border-t border-neutral-100 bg-neutral-50/50 flex justify-end">
+              <button 
+                onClick={() => setSelectedAssessmentForReview(null)}
+                className="bg-neutral-900 text-white px-8 py-3 rounded-xl font-bold hover:bg-neutral-800 transition-all"
+              >
+                Fechar Revisão
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {/* Default Assessment Modal (Printable) */}
       {showDefaultModal && selectedAssessmentForDefault && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[150] flex items-center justify-center p-4 overflow-y-auto">
@@ -1703,7 +1905,7 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
                     <p className="text-sm font-bold uppercase">DATA: ____/____/_______</p>
                   </div>
                   <div className="text-right space-y-2">
-                    <p className="text-sm font-bold">VALOR: 2,0 PONTOS</p>
+                    <p className="text-sm font-bold">VALOR: {(selectedAssessmentForDefault.questionCount * (selectedAssessmentForDefault.pointsPerQuestion || 2)).toFixed(1)} PONTOS</p>
                     <p className="text-sm font-bold">NOTA: _________</p>
                   </div>
                 </div>
@@ -1757,6 +1959,175 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
 
 function StudentPanel({ startAssessment, error }: any) {
   const [assessments, setAssessments] = useState<Assessment[]>([]);
+  const [selectedAssessmentForReview, setSelectedAssessmentForReview] = useState<Assessment | null>(null);
+  const [generatedPracticeExercise, setGeneratedPracticeExercise] = useState<any>(null);
+  const [isGeneratingPractice, setIsGeneratingPractice] = useState(false);
+  const [studentPracticeAnswers, setStudentPracticeAnswers] = useState<string[]>([]);
+  const [showPracticeResult, setShowPracticeResult] = useState(false);
+
+  const TEMA_1_EXERCISE = {
+    columnA: [
+      { id: 1, text: "O que são finanças em termos simples e quais tipos de entidades as finanças envolvem?" },
+      { id: 2, text: "Cite e explique brevemente dois conceitos básicos em finanças mencionados no texto." },
+      { id: 3, text: "Por que o conhecimento em finanças é fundamental para empreendedores?" },
+      { id: 4, text: "Qual é a definição de conformidade no contexto empresarial?" },
+      { id: 5, text: "Como a ética empresarial se manifesta nas relações com clientes?" },
+      { id: 6, text: "Cite e explique brevemente uma forma comum de fraude no mundo corporativo." },
+      { id: 7, text: "Qual é o principal objetivo da Lei Sarbanes-Oxley (SOX)?" },
+      { id: 8, text: "O que a governança corporativa representa em uma organização?" },
+      { id: 9, text: "Como a transparência na governança corporativa ajuda a mitigar problemas de agência?" },
+      { id: 10, text: "Qual é o principal objetivo da gestão pública?" }
+    ],
+    columnB: [
+      { text: "Para empreendedores, o conhecimento em finanças é fundamental para tomar decisões estratégicas de investimento e financiamento que garantam o crescimento e a sustentabilidade do negócio.", correctId: 3 },
+      { text: "Fraudes contábeis são a manipulação de informações financeiras para ocultar a verdadeira situação da empresa. (outras respostas válidas incluem Fraudes em contratos e Fraudes em pagamentos).", correctId: 6 },
+      { text: "O principal objetivo da Lei Sarbanes-Oxley (SOX) é eliminar problemas de divulgação e conflitos de interesses, estabelecendo controles e regulamentações mais rígidos para garantir a transparência e a responsabilidade corporativa.", correctId: 7 },
+      { text: "Ao exigir a divulgação clara e precisa de informações, a transparência na governança corporativa reduz a assimetria de informação entre acionistas e administradores, dificultando a ocultação de dados prejudiciais.", correctId: 9 },
+      { text: "A ética empresarial se manifesta nas relações com clientes ao oferecer produtos e serviços de qualidade, respeitar os direitos do consumidor e agir com transparência.", correctId: 5 },
+      { text: "O principal objetivo da gestão pública é focar no bem comum e prestar serviços à sociedade, como educação, saúde e segurança.", correctId: 10 },
+      { text: "Conformidade se refere ao ato de seguir regras, leis, regulamentos e padrões estabelecidos por órgãos reguladores, governos ou organizações, garantindo que uma empresa opere dentro dos limites legais e éticos.", correctId: 4 },
+      { text: "A governança corporativa representa o conjunto de práticas, processos e estruturas que direcionam e controlam uma organização, definindo as regras para a tomada de decisões e o equilíbrio dos interesses dos stakeholders.", correctId: 8 },
+      { text: "Ativo é qualquer bem ou direito que gera valor econômico, como dinheiro ou imóveis. Passivo são obrigações financeiras, como empréstimos ou contas a pagar. (outras respostas válidas incluem Patrimônio Líquido, Receita, Despesa, Lucro, Prejuízo).", correctId: 2 },
+      { text: "Em termos simples, finanças é a gestão do dinheiro. Ela envolve decisões sobre como obter, alocar e utilizar recursos financeiros em empresas, governos ou para indivíduos.", correctId: 1 }
+    ]
+  };
+
+  const generatePractice = async (assessment: Assessment) => {
+    if (!assessment.exerciseUrl) return;
+    
+    // If it's Tema 1, use the static data
+    if (assessment.title.toLowerCase().includes('tema 1') || assessment.exerciseName?.toLowerCase().includes('exercício 1')) {
+      setGeneratedPracticeExercise(TEMA_1_EXERCISE);
+      setStudentPracticeAnswers(new Array(TEMA_1_EXERCISE.columnB.length).fill(''));
+      return;
+    }
+
+    setIsGeneratingPractice(true);
+    setGeneratedPracticeExercise(null);
+    setShowPracticeResult(false);
+    setStudentPracticeAnswers([]);
+    
+    try {
+      let sourceText = '';
+      const base64Data = assessment.exerciseUrl.split(',')[1];
+      const binaryData = atob(base64Data);
+      const arrayBuffer = new ArrayBuffer(binaryData.length);
+      const view = new Uint8Array(arrayBuffer);
+      for (let i = 0; i < binaryData.length; i++) {
+        view[i] = binaryData.charCodeAt(i);
+      }
+
+      if (assessment.exerciseUrl.includes('application/pdf')) {
+        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+        const pdf = await loadingTask.promise;
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          sourceText += textContent.items.map((item: any) => item.str || '').join(' ') + '\n';
+        }
+      } else {
+        sourceText = new TextDecoder().decode(arrayBuffer);
+      }
+
+      if (!sourceText.trim()) {
+        throw new Error('Não foi possível extrair texto do arquivo de exercício.');
+      }
+
+      const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const prompt = `Com base EXCLUSIVAMENTE no seguinte material de exercício:
+      
+      "${sourceText}"
+      
+      Crie um exercício do tipo "Relacione as Colunas" com exatamente 10 itens baseados no conteúdo acima.
+      O exercício deve consistir em:
+      1. Coluna A (QUESTÕES): Uma lista de 10 perguntas ou termos numerados de 1 a 10, extraídos do texto.
+      2. Coluna B (RESPOSTAS): Uma lista das 10 respostas ou definições correspondentes encontradas no texto, mas em ordem ALEATÓRIA.
+      
+      REGRAS CRÍTICAS:
+      - Use APENAS informações presentes no texto fornecido.
+      - Não invente questões de outros temas (como tecnologia ou hardware) se o texto for sobre outro assunto (como finanças ou direito).
+      - Mantenha a precisão técnica dos termos do arquivo.
+      
+      Retorne um objeto JSON com:
+      - columnA: array de objetos { id: number, text: string }
+      - columnB: array de objetos { text: string, correctId: number } (onde correctId é o ID correspondente da Coluna A)
+      
+      Importante: Garanta que as respostas na Coluna B estejam embaralhadas em relação à Coluna A.`;
+
+      const response = await genAI.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ parts: [{ text: prompt }] }],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              columnA: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    id: { type: Type.INTEGER },
+                    text: { type: Type.STRING }
+                  },
+                  required: ["id", "text"]
+                }
+              },
+              columnB: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    text: { type: Type.STRING },
+                    correctId: { type: Type.INTEGER }
+                  },
+                  required: ["text", "correctId"]
+                }
+              }
+            },
+            required: ["columnA", "columnB"]
+          }
+        }
+      });
+
+      const parsed = JSON.parse(response.text);
+      
+      // Save the generated exercise to Firestore so it doesn't need to be generated again
+      await updateDoc(doc(db, 'assessments', assessment.id), {
+        practiceExercise: parsed
+      });
+
+      setGeneratedPracticeExercise(parsed);
+      setStudentPracticeAnswers(new Array(parsed.columnB.length).fill(''));
+    } catch (err: any) {
+      console.error("Erro ao elaborar exercício:", err);
+      alert("Erro ao elaborar exercício: " + (err.message || String(err)));
+    } finally {
+      setIsGeneratingPractice(false);
+    }
+  };
+
+  const handleOpenReview = (assessment: Assessment) => {
+    setSelectedAssessmentForReview(assessment);
+    
+    // If it's Tema 1, use the static data immediately
+    if (assessment.title.toLowerCase().includes('tema 1') || assessment.exerciseName?.toLowerCase().includes('exercício 1')) {
+      setGeneratedPracticeExercise(TEMA_1_EXERCISE);
+      setStudentPracticeAnswers(new Array(TEMA_1_EXERCISE.columnB.length).fill(''));
+      return;
+    }
+
+    // If it already has a practice exercise, use it
+    if (assessment.practiceExercise) {
+      setGeneratedPracticeExercise(assessment.practiceExercise);
+      setStudentPracticeAnswers(new Array(assessment.practiceExercise.columnB.length).fill(''));
+      return;
+    }
+
+    if (assessment.exerciseUrl) {
+      generatePractice(assessment);
+    }
+  };
 
   useEffect(() => {
     const q = query(collection(db, 'assessments'), where('status', '==', 'Available'));
@@ -1792,14 +2163,22 @@ function StudentPanel({ startAssessment, error }: any) {
             <h3 className="text-xl font-bold mb-2">{a.title}</h3>
             <div className="flex items-center gap-4 text-sm text-neutral-500 mb-6">
               <span className="flex items-center gap-1"><Loader2 className="w-4 h-4" /> {a.timeLimit} min</span>
-              <span className="flex items-center gap-1"><FileText className="w-4 h-4" /> 5 Questões</span>
+              <span className="flex items-center gap-1"><FileText className="w-4 h-4" /> {a.questionCount || 5} Questões</span>
             </div>
-            <button 
-              onClick={() => startAssessment(a)}
-              className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-emerald-700 transition-colors"
-            >
-              Iniciar Avaliação <ChevronRight className="w-4 h-4" />
-            </button>
+            <div className="flex flex-col gap-2">
+              <button 
+                onClick={() => handleOpenReview(a)}
+                className="w-full bg-neutral-100 text-neutral-700 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-neutral-200 transition-colors"
+              >
+                <Eye className="w-4 h-4" /> Revisão
+              </button>
+              <button 
+                onClick={() => startAssessment(a)}
+                className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-emerald-700 transition-colors"
+              >
+                Iniciar Avaliação <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         ))}
         {assessments.length === 0 && (
@@ -1808,6 +2187,228 @@ function StudentPanel({ startAssessment, error }: any) {
           </div>
         )}
       </div>
+
+      {selectedAssessmentForReview && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white w-full max-w-4xl max-h-[90vh] rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col"
+          >
+            <div className="p-8 border-b border-neutral-100 flex items-center justify-between bg-neutral-50/50">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-emerald-100 rounded-2xl flex items-center justify-center">
+                  <BookOpen className="w-6 h-6 text-emerald-600" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold">Revisão: {selectedAssessmentForReview.title}</h3>
+                  <p className="text-neutral-500 text-sm">Leia o material base e utilize os materiais de apoio.</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => {
+                  setSelectedAssessmentForReview(null);
+                  setGeneratedPracticeExercise(null);
+                  setStudentPracticeAnswers([]);
+                  setShowPracticeResult(false);
+                }}
+                className="p-2 hover:bg-neutral-200 rounded-full transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-8 overflow-y-auto flex-1 space-y-8">
+              {/* Loading State for Practice Exercise */}
+              {isGeneratingPractice && (
+                <div className="flex flex-col items-center justify-center py-20 space-y-4 bg-emerald-50/30 rounded-[2.5rem] border-2 border-dashed border-emerald-100">
+                  <div className="relative">
+                    <div className="w-16 h-16 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin"></div>
+                    <TrendingUp className="w-6 h-6 text-emerald-600 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+                  </div>
+                  <div className="text-center">
+                    <h4 className="font-bold text-emerald-900">Elaborando seu Exercício...</h4>
+                    <p className="text-sm text-emerald-600">Analisando o material e preparando o desafio.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Generated Practice Exercise Display (Relacione as Colunas) */}
+              {generatedPracticeExercise && typeof generatedPracticeExercise === 'object' && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="space-y-6"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <TrendingUp className="w-6 h-6 text-emerald-600" />
+                      <h4 className="font-bold text-xl text-neutral-800">Prática: Relacione as Colunas</h4>
+                    </div>
+                    {showPracticeResult && (
+                      <button 
+                        onClick={() => {
+                          setStudentPracticeAnswers(new Array(generatedPracticeExercise.columnB.length).fill(''));
+                          setShowPracticeResult(false);
+                        }}
+                        className="text-sm font-bold text-emerald-600 hover:underline"
+                      >
+                        Tentar Novamente
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid lg:grid-cols-2 gap-8">
+                    {/* Coluna A */}
+                    <div className="bg-white rounded-3xl border border-neutral-200 overflow-hidden shadow-sm">
+                      <table className="w-full text-sm">
+                        <thead className="bg-neutral-50 border-b border-neutral-200">
+                          <tr>
+                            <th className="w-16 p-4 border-r border-neutral-200 text-center font-bold text-neutral-500">#</th>
+                            <th className="p-4 text-left font-bold text-neutral-500 uppercase tracking-wider">QUESTÕES</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {generatedPracticeExercise.columnA.map((item: any) => (
+                            <tr key={item.id} className="border-b border-neutral-100 last:border-0">
+                              <td className="p-4 border-r border-neutral-100 text-center font-bold bg-neutral-50/30 text-neutral-700">{item.id}</td>
+                              <td className="p-4 text-neutral-600 leading-relaxed">{item.text}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Coluna B */}
+                    <div className="bg-white rounded-3xl border border-neutral-200 overflow-hidden shadow-sm">
+                      <table className="w-full text-sm">
+                        <thead className="bg-neutral-50 border-b border-neutral-200">
+                          <tr>
+                            <th className="w-20 p-4 border-r border-neutral-200 text-center font-bold text-neutral-500">Ref #</th>
+                            <th className="p-4 text-left font-bold text-neutral-500 uppercase tracking-wider">RESPOSTAS</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {generatedPracticeExercise.columnB.map((item: any, idx: number) => {
+                            const isCorrect = parseInt(studentPracticeAnswers[idx]) === item.correctId;
+                            return (
+                              <tr key={idx} className="border-b border-neutral-100 last:border-0">
+                                <td className="p-3 border-r border-neutral-100 text-center">
+                                  <input 
+                                    type="text"
+                                    maxLength={2}
+                                    className={`w-12 h-12 text-center border-2 rounded-xl font-bold transition-all outline-none focus:ring-4 ${
+                                      showPracticeResult 
+                                        ? isCorrect 
+                                          ? 'border-emerald-500 bg-emerald-50 text-emerald-700' 
+                                          : 'border-red-500 bg-red-50 text-red-700'
+                                        : 'border-neutral-100 focus:border-emerald-500 focus:ring-emerald-50'
+                                    }`}
+                                    value={studentPracticeAnswers[idx] || ''}
+                                    onChange={(e) => {
+                                      const val = e.target.value.replace(/\D/g, '');
+                                      const newAnswers = [...studentPracticeAnswers];
+                                      newAnswers[idx] = val;
+                                      setStudentPracticeAnswers(newAnswers);
+                                    }}
+                                    disabled={showPracticeResult}
+                                    placeholder="?"
+                                  />
+                                </td>
+                                <td className="p-4 text-neutral-600 leading-relaxed">{item.text}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {!showPracticeResult && (
+                    <div className="flex justify-center pt-4">
+                      <button 
+                        onClick={() => setShowPracticeResult(true)}
+                        className="bg-emerald-600 text-white px-12 py-4 rounded-2xl font-bold hover:bg-emerald-700 transition-all shadow-lg hover:shadow-emerald-200"
+                      >
+                        Verificar Respostas
+                      </button>
+                    </div>
+                  )}
+
+                  {showPracticeResult && (
+                    <motion.div 
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="p-8 bg-neutral-900 text-white rounded-[2.5rem] space-y-6"
+                    >
+                      <div className="flex items-center justify-between">
+                        <h5 className="text-xl font-bold flex items-center gap-3">
+                          <CheckCircle className="w-6 h-6 text-emerald-400" />
+                          Gabarito e Feedback
+                        </h5>
+                        <div className="text-sm font-medium px-4 py-2 bg-white/10 rounded-full">
+                          Acertos: {studentPracticeAnswers.filter((ans, idx) => parseInt(ans) === generatedPracticeExercise.columnB[idx].correctId).length} / {generatedPracticeExercise.columnB.length}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {generatedPracticeExercise.columnB.map((item: any, idx: number) => {
+                          const isCorrect = parseInt(studentPracticeAnswers[idx]) === item.correctId;
+                          const correctText = generatedPracticeExercise.columnA.find((a: any) => a.id === item.correctId)?.text;
+                          return (
+                            <div key={idx} className={`p-4 rounded-2xl border ${isCorrect ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-red-500/30 bg-red-500/5'}`}>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-bold uppercase tracking-wider opacity-50">Item {idx + 1}</span>
+                                {isCorrect ? <CheckCircle className="w-4 h-4 text-emerald-400" /> : <X className="w-4 h-4 text-red-400" />}
+                              </div>
+                              <p className="text-sm font-medium mb-2 line-clamp-2 italic opacity-80">"{item.text}"</p>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold px-2 py-1 bg-white/10 rounded">Correto: {item.correctId}</span>
+                                <span className="text-xs opacity-60 truncate">({correctText})</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </motion.div>
+                  )}
+                </motion.div>
+              )}
+            </div>
+
+            <div className="p-8 border-t border-neutral-100 bg-neutral-50/50 flex justify-between items-center gap-4">
+              {selectedAssessmentForReview.glossaryUrl && (
+                <div className="max-w-[280px] w-full">
+                  <a 
+                    href={selectedAssessmentForReview.glossaryUrl}
+                    download={selectedAssessmentForReview.glossaryName || 'glossario.pdf'}
+                    className="p-3 bg-blue-50/80 rounded-2xl border border-blue-100 flex items-center gap-3 hover:bg-blue-100/80 transition-all group"
+                  >
+                    <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform shrink-0">
+                      <Book className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-bold text-blue-900 text-sm">Baixar Glossário</h4>
+                      <p className="text-[10px] text-blue-600 truncate">{selectedAssessmentForReview.glossaryName}</p>
+                    </div>
+                    <Download className="w-4 h-4 text-blue-400 shrink-0" />
+                  </a>
+                </div>
+              )}
+              <button 
+                onClick={() => {
+                  setSelectedAssessmentForReview(null);
+                  setGeneratedPracticeExercise(null);
+                  setStudentPracticeAnswers([]);
+                  setShowPracticeResult(false);
+                }}
+                className="bg-neutral-900 text-white px-8 py-3 rounded-xl font-bold hover:bg-neutral-800 transition-all whitespace-nowrap"
+              >
+                Fechar Revisão
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -1900,12 +2501,15 @@ function TestView({ questions, currentIndex, setCurrentIndex, answers, setAnswer
 
 function ResultView({ result, setView }: { result: Result, setView: any }) {
   const downloadReport = () => {
+    const totalPossible = result.questions.length * (result.pointsPerQuestion || 2);
+    const correctCount = Math.round(result.score / (result.pointsPerQuestion || 2));
     const content = `
 RELATÓRIO DE DESEMPENHO - FINANÇAS URCA
 Avaliação: ${result.assessmentTitle}
 Estudante: ${result.email}
 Data: ${new Date().toLocaleString()}
-Nota Final: ${result.score.toFixed(1)} / 2.0
+Nota Final: ${result.score.toFixed(1)} / ${totalPossible.toFixed(1)}
+Acertos: ${correctCount} / ${result.questions.length}
 
 DETALHES DA PROVA:
 ${result.questions.map((q, i) => `
@@ -1943,16 +2547,16 @@ Explicação: ${q.explanation}
         <div className="grid sm:grid-cols-3 gap-8 py-8 border-y border-neutral-100">
           <div className="space-y-1">
             <span className="text-sm font-bold text-neutral-400 uppercase tracking-widest">Nota Final</span>
-            <div className="text-5xl font-black text-emerald-600">{result.score.toFixed(1)} / 2.0</div>
+            <div className="text-5xl font-black text-emerald-600">{result.score.toFixed(1)} / {(result.questions.length * (result.pointsPerQuestion || 2)).toFixed(1)}</div>
           </div>
           <div className="space-y-1">
             <span className="text-sm font-bold text-neutral-400 uppercase tracking-widest">Acertos</span>
-            <div className="text-5xl font-black text-neutral-900">{Math.round(result.score / 0.4)}/5</div>
+            <div className="text-5xl font-black text-neutral-900">{Math.round(result.score / (result.pointsPerQuestion || 2))}/{result.questions.length}</div>
           </div>
           <div className="space-y-1">
             <span className="text-sm font-bold text-neutral-400 uppercase tracking-widest">Status</span>
-            <div className={`text-2xl font-bold mt-3 ${result.score >= 1.4 ? 'text-emerald-600' : 'text-red-600'}`}>
-              {result.score >= 1.4 ? 'Aprovado' : 'Recuperação'}
+            <div className={`text-2xl font-bold mt-3 ${result.score >= (result.questions.length * (result.pointsPerQuestion || 2)) * 0.7 ? 'text-emerald-600' : 'text-red-600'}`}>
+              {result.score >= (result.questions.length * (result.pointsPerQuestion || 2)) * 0.7 ? 'Aprovado' : 'Recuperação'}
             </div>
           </div>
         </div>
