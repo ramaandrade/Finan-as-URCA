@@ -2160,11 +2160,7 @@ function StudentPanel({ startAssessment, error }: any) {
             <div className="w-12 h-12 bg-emerald-100 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
               <BookOpen className="w-6 h-6 text-emerald-600" />
             </div>
-            <h3 className="text-xl font-bold mb-2">{a.title}</h3>
-            <div className="flex items-center gap-4 text-sm text-neutral-500 mb-6">
-              <span className="flex items-center gap-1"><Loader2 className="w-4 h-4" /> {a.timeLimit} min</span>
-              <span className="flex items-center gap-1"><FileText className="w-4 h-4" /> {a.questionCount || 5} Questões</span>
-            </div>
+            <h3 className="text-xl font-bold mb-6">{a.title}</h3>
             <div className="flex flex-col gap-2">
               {a.glossaryUrl && (
                 <a 
@@ -2181,12 +2177,19 @@ function StudentPanel({ startAssessment, error }: any) {
               >
                 <Eye className="w-4 h-4" /> Revisão
               </button>
-              <button 
-                onClick={() => startAssessment(a)}
-                className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-emerald-700 transition-colors"
-              >
-                Iniciar Avaliação <ChevronRight className="w-4 h-4" />
-              </button>
+              
+              <div className="mt-2 space-y-3">
+                <button 
+                  onClick={() => startAssessment(a)}
+                  className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200/50 active:scale-[0.98]"
+                >
+                  Iniciar Avaliação <ChevronRight className="w-4 h-4" />
+                </button>
+                <div className="flex items-center justify-center gap-4 text-xs text-neutral-400">
+                  <span className="flex items-center gap-1"><Loader2 className="w-3 h-3" /> {a.timeLimit} min</span>
+                  <span className="flex items-center gap-1"><FileText className="w-3 h-3" /> {a.questionCount || 5} Questões</span>
+                </div>
+              </div>
             </div>
           </div>
         ))}
