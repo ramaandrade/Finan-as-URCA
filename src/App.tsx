@@ -2166,6 +2166,15 @@ function StudentPanel({ startAssessment, error }: any) {
               <span className="flex items-center gap-1"><FileText className="w-4 h-4" /> {a.questionCount || 5} Questões</span>
             </div>
             <div className="flex flex-col gap-2">
+              {a.glossaryUrl && (
+                <a 
+                  href={a.glossaryUrl}
+                  download={a.glossaryName || 'glossario.pdf'}
+                  className="w-full bg-blue-50 text-blue-700 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-blue-100 transition-colors"
+                >
+                  <Download className="w-4 h-4" /> Glossário
+                </a>
+              )}
               <button 
                 onClick={() => handleOpenReview(a)}
                 className="w-full bg-neutral-100 text-neutral-700 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-neutral-200 transition-colors"
@@ -2375,25 +2384,7 @@ function StudentPanel({ startAssessment, error }: any) {
               )}
             </div>
 
-            <div className="p-8 border-t border-neutral-100 bg-neutral-50/50 flex justify-between items-center gap-4">
-              {selectedAssessmentForReview.glossaryUrl && (
-                <div className="max-w-[280px] w-full">
-                  <a 
-                    href={selectedAssessmentForReview.glossaryUrl}
-                    download={selectedAssessmentForReview.glossaryName || 'glossario.pdf'}
-                    className="p-3 bg-blue-50/80 rounded-2xl border border-blue-100 flex items-center gap-3 hover:bg-blue-100/80 transition-all group"
-                  >
-                    <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform shrink-0">
-                      <Book className="w-5 h-5 text-blue-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-bold text-blue-900 text-sm">Baixar Glossário</h4>
-                      <p className="text-[10px] text-blue-600 truncate">{selectedAssessmentForReview.glossaryName}</p>
-                    </div>
-                    <Download className="w-4 h-4 text-blue-400 shrink-0" />
-                  </a>
-                </div>
-              )}
+            <div className="p-8 border-t border-neutral-100 bg-neutral-50/50 flex justify-end">
               <button 
                 onClick={() => {
                   setSelectedAssessmentForReview(null);
