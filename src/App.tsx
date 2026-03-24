@@ -126,6 +126,7 @@ interface Assessment {
   questionCount: number;
   pointsPerQuestion: number;
   status: 'Available' | 'Unavailable';
+  assessmentStatus: 'Available' | 'Unavailable';
   createdAt: any;
   updatedAt?: any;
   exerciseUrl?: string;
@@ -710,7 +711,15 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
   const [emailsText, setEmailsText] = useState('');
   const [isEditingAccess, setIsEditingAccess] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newAssessment, setNewAssessment] = useState({ title: '', baseText: '', timeLimit: 30, questionCount: 5, pointsPerQuestion: 2, status: 'Available' as 'Available' | 'Unavailable' });
+  const [newAssessment, setNewAssessment] = useState({ 
+    title: '', 
+    baseText: '', 
+    timeLimit: 30, 
+    questionCount: 5, 
+    pointsPerQuestion: 2, 
+    status: 'Available' as 'Available' | 'Unavailable',
+    assessmentStatus: 'Available' as 'Available' | 'Unavailable'
+  });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -727,21 +736,10 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
   const [newStudentEmail, setNewStudentEmail] = useState('');
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [showVisibilityModal, setShowVisibilityModal] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState<string | null>(null);
   const [resultToDelete, setResultToDelete] = useState<string | null>(null);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
   const [isDeletingResult, setIsDeletingResult] = useState(false);
-
-  const toggleVisibility = async (id: string, currentStatus: 'Available' | 'Unavailable') => {
-    try {
-      const newStatus = currentStatus === 'Available' ? 'Unavailable' : 'Available';
-      await updateDoc(doc(db, 'assessments', id), { status: newStatus });
-    } catch (err) {
-      console.error('Erro ao alternar visibilidade:', err);
-      setError('Erro ao alternar visibilidade da avaliação.');
-    }
-  };
 
   const toggleSelectAllStudents = () => {
     if (selectedStudentIds.length === students.length) {
@@ -1025,7 +1023,15 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
 
   const openAddModal = () => {
     setEditingId(null);
-    setNewAssessment({ title: '', baseText: '', timeLimit: 30, questionCount: 5, pointsPerQuestion: 2, status: 'Available' });
+    setNewAssessment({ 
+      title: '', 
+      baseText: '', 
+      timeLimit: 30, 
+      questionCount: 5, 
+      pointsPerQuestion: 2, 
+      status: 'Available',
+      assessmentStatus: 'Available'
+    });
     setUploadSuccess(false);
     setError(null);
     setShowAddModal(true);
@@ -1039,7 +1045,8 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
       timeLimit: assessment.timeLimit,
       questionCount: assessment.questionCount || 5,
       pointsPerQuestion: assessment.pointsPerQuestion || 2,
-      status: assessment.status
+      status: assessment.status,
+      assessmentStatus: assessment.assessmentStatus || 'Available'
     });
     setUploadSuccess(true);
     setShowAddModal(true);
@@ -1085,7 +1092,15 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
   const closeModal = () => {
     setShowAddModal(false);
     setEditingId(null);
-    setNewAssessment({ title: '', baseText: '', timeLimit: 30, questionCount: 5, pointsPerQuestion: 2, status: 'Available' });
+    setNewAssessment({ 
+      title: '', 
+      baseText: '', 
+      timeLimit: 30, 
+      questionCount: 5, 
+      pointsPerQuestion: 2, 
+      status: 'Available',
+      assessmentStatus: 'Available'
+    });
     setUploadSuccess(false);
     setError(null);
   };
@@ -1146,13 +1161,6 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
           >
             <User className="w-5 h-5" />
             Alunos
-          </button>
-          <button 
-            onClick={() => setShowVisibilityModal(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-all"
-          >
-            <Settings className="w-5 h-5" />
-            Gerenciar Temas
           </button>
           <button 
             onClick={openAddModal}
@@ -1400,8 +1408,11 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
                     <div className="flex items-center gap-3 text-xs text-neutral-500 mt-1">
                       <span className="flex items-center gap-1"><Loader2 className="w-3 h-3" /> {a.timeLimit} min</span>
                       <span className="flex items-center gap-1"><FileText className="w-3 h-3" /> {a.questionCount || 5} questões ({a.pointsPerQuestion || 2} pts/q)</span>
-                      <span className={`px-2 py-0.5 rounded-full ${a.status === 'Available' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                        {a.status === 'Available' ? 'Disponível' : 'Indisponível'}
+                      <span className={`px-2 py-0.5 rounded-full ${a.status === 'Available' ? 'bg-blue-100 text-blue-700' : 'bg-neutral-100 text-neutral-500'}`}>
+                        Tema: {a.status === 'Available' ? 'Visível' : 'Oculto'}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded-full ${a.assessmentStatus === 'Available' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                        Avaliação: {a.assessmentStatus === 'Available' ? 'Liberada' : 'Bloqueada'}
                       </span>
                       <span className="flex items-center gap-1 font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
                         <CheckCircle className="w-3 h-3" /> {submissionCount} {submissionCount === 1 ? 'entregue' : 'entregues'}
@@ -1455,79 +1466,6 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
             )}
           </div>
         </div>
-      </div>
-    )}
-
-    {/* Visibility Management Modal */}
-    {showVisibilityModal && (
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 no-print">
-        <motion.div 
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="bg-white w-full max-w-2xl rounded-3xl p-8 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto"
-        >
-          <div className="flex items-center justify-between">
-            <h3 className="text-2xl font-bold">Gerenciar Temas Disponíveis</h3>
-            <button 
-              onClick={() => setShowVisibilityModal(false)}
-              className="p-2 hover:bg-neutral-100 rounded-full transition-colors"
-            >
-              <X className="w-6 h-6" />
-            </button>
-          </div>
-          
-          <p className="text-neutral-500">
-            Selecione quais temas estarão visíveis para os alunos no Portal do Aluno/a.
-          </p>
-
-          <div className="space-y-3">
-            {assessments.map(a => (
-              <label 
-                key={a.id} 
-                className={`flex items-center justify-between p-4 rounded-2xl border-2 transition-all cursor-pointer ${
-                  a.status === 'Available' 
-                  ? 'border-emerald-500 bg-emerald-50' 
-                  : 'border-neutral-100 hover:border-neutral-200'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                    a.status === 'Available' ? 'bg-emerald-100 text-emerald-600' : 'bg-neutral-100 text-neutral-400'
-                  }`}>
-                    <BookOpen className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <span className="font-bold block">{a.title}</span>
-                    <span className="text-xs text-neutral-500">
-                      {a.questionCount || 5} questões • {a.timeLimit} min
-                    </span>
-                  </div>
-                </div>
-                <div className="relative inline-flex items-center cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    className="sr-only peer"
-                    checked={a.status === 'Available'}
-                    onChange={() => toggleVisibility(a.id, a.status)}
-                  />
-                  <div className="w-11 h-6 bg-neutral-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                </div>
-              </label>
-            ))}
-            {assessments.length === 0 && (
-              <div className="text-center py-12 text-neutral-400">Nenhum tema criado ainda.</div>
-            )}
-          </div>
-
-          <div className="pt-4">
-            <button 
-              onClick={() => setShowVisibilityModal(false)}
-              className="w-full bg-neutral-900 text-white py-4 rounded-xl font-bold hover:bg-neutral-800 transition-all"
-            >
-              Concluir
-            </button>
-          </div>
-        </motion.div>
       </div>
     )}
 
@@ -1592,14 +1530,25 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-sm font-semibold">Status</label>
+                  <label className="text-sm font-semibold">Tema Visível?</label>
                   <select 
                     value={newAssessment.status}
                     onChange={(e) => setNewAssessment(prev => ({ ...prev, status: e.target.value as any }))}
                     className="w-full px-4 py-3 rounded-xl border border-neutral-200 outline-none focus:ring-2 focus:ring-emerald-500"
                   >
-                    <option value="Available">Disponível</option>
-                    <option value="Unavailable">Indisponível</option>
+                    <option value="Available">Sim (Visível)</option>
+                    <option value="Unavailable">Não (Oculto)</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold">Avaliação Liberada?</label>
+                  <select 
+                    value={newAssessment.assessmentStatus}
+                    onChange={(e) => setNewAssessment(prev => ({ ...prev, assessmentStatus: e.target.value as any }))}
+                    className="w-full px-4 py-3 rounded-xl border border-neutral-200 outline-none focus:ring-2 focus:ring-emerald-500"
+                  >
+                    <option value="Available">Sim (Liberada)</option>
+                    <option value="Unavailable">Não (Bloqueada)</option>
                   </select>
                 </div>
               </div>
@@ -2318,7 +2267,7 @@ function StudentPanel({ user, startAssessment, error }: any) {
   };
 
   useEffect(() => {
-    const q = query(collection(db, 'assessments'));
+    const q = query(collection(db, 'assessments'), where('status', '==', 'Available'));
     const unsubscribe = onSnapshot(q, (snap) => {
       setAssessments(snap.docs.map(d => ({ id: d.id, ...d.data() } as Assessment)));
     });
@@ -2379,9 +2328,9 @@ function StudentPanel({ user, startAssessment, error }: any) {
                   <div className="w-full bg-neutral-100 text-neutral-400 py-4 rounded-xl font-bold flex items-center justify-center gap-2 cursor-not-allowed">
                     <CheckCircle2 className="w-4 h-4" /> Avaliação Realizada
                   </div>
-                ) : a.status === 'Unavailable' ? (
+                ) : a.assessmentStatus === 'Unavailable' ? (
                   <div className="w-full bg-red-50 text-red-400 py-4 rounded-xl font-bold flex items-center justify-center gap-2 cursor-not-allowed border border-red-100">
-                    <AlertCircle className="w-4 h-4" /> Avaliação Indisponível
+                    <AlertCircle className="w-4 h-4" /> Avaliação Bloqueada
                   </div>
                 ) : (
                   <button 
