@@ -548,7 +548,7 @@ export default function App() {
         <AnimatePresence mode="wait">
           {view === 'home' && <HomeView user={user} isAdmin={isAdmin} setView={setView} handleLogin={handleLogin} error={error} isLocked={isLocked} handleToggleLock={handleToggleLock} />}
           {view === 'admin' && isAdmin && <AdminPanel setView={setView} isLocked={isLocked} handleToggleLock={handleToggleLock} />}
-          {view === 'student' && user && <StudentPanel user={user} startAssessment={startAssessment} error={error} />}
+          {view === 'student' && user && <StudentPanel user={user} isAdmin={isAdmin} startAssessment={startAssessment} error={error} />}
           {view === 'test' && (
             <TestView 
               questions={questions} 
@@ -1863,14 +1863,24 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
                         onChange={async (e) => {
                           const file = e.target.files?.[0];
                           if (!file) return;
-                          const reader = new FileReader();
-                          reader.onload = async (event) => {
-                            const base64 = event.target?.result as string;
-                            const updated = { ...selectedAssessmentForReview, exerciseUrl: base64, exerciseName: file.name };
-                            await updateDoc(doc(db, 'assessments', selectedAssessmentForReview.id), { exerciseUrl: base64, exerciseName: file.name });
-                            setSelectedAssessmentForReview(updated);
-                          };
-                          reader.readAsDataURL(file);
+                          try {
+                            const reader = new FileReader();
+                            reader.onload = async (event) => {
+                              try {
+                                const base64 = event.target?.result as string;
+                                const updated = { ...selectedAssessmentForReview, exerciseUrl: base64, exerciseName: file.name };
+                                await updateDoc(doc(db, 'assessments', selectedAssessmentForReview.id), { exerciseUrl: base64, exerciseName: file.name });
+                                setSelectedAssessmentForReview(updated);
+                              } catch (err: any) {
+                                console.error('Erro ao salvar exercício:', err);
+                                setError(`Erro ao salvar exercício: ${err.message}`);
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          } catch (err: any) {
+                            console.error('Erro ao ler arquivo:', err);
+                            setError(`Erro ao ler arquivo: ${err.message}`);
+                          }
                         }}
                       />
                     </label>
@@ -1915,14 +1925,24 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
                         onChange={async (e) => {
                           const file = e.target.files?.[0];
                           if (!file) return;
-                          const reader = new FileReader();
-                          reader.onload = async (event) => {
-                            const base64 = event.target?.result as string;
-                            const updated = { ...selectedAssessmentForReview, glossaryUrl: base64, glossaryName: file.name };
-                            await updateDoc(doc(db, 'assessments', selectedAssessmentForReview.id), { glossaryUrl: base64, glossaryName: file.name });
-                            setSelectedAssessmentForReview(updated);
-                          };
-                          reader.readAsDataURL(file);
+                          try {
+                            const reader = new FileReader();
+                            reader.onload = async (event) => {
+                              try {
+                                const base64 = event.target?.result as string;
+                                const updated = { ...selectedAssessmentForReview, glossaryUrl: base64, glossaryName: file.name };
+                                await updateDoc(doc(db, 'assessments', selectedAssessmentForReview.id), { glossaryUrl: base64, glossaryName: file.name });
+                                setSelectedAssessmentForReview(updated);
+                              } catch (err: any) {
+                                console.error('Erro ao salvar glossário:', err);
+                                setError(`Erro ao salvar glossário: ${err.message}`);
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          } catch (err: any) {
+                            console.error('Erro ao ler arquivo:', err);
+                            setError(`Erro ao ler arquivo: ${err.message}`);
+                          }
                         }}
                       />
                     </label>
@@ -2035,7 +2055,7 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
   );
 }
 
-function StudentPanel({ user, startAssessment, error }: any) {
+function StudentPanel({ user, isAdmin, startAssessment }: any) {
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [userResults, setUserResults] = useState<Result[]>([]);
   const [selectedAssessmentForReview, setSelectedAssessmentForReview] = useState<Assessment | null>(null);
@@ -2046,6 +2066,7 @@ function StudentPanel({ user, startAssessment, error }: any) {
   const [viewingGlossary, setViewingGlossary] = useState<Assessment | null>(null);
   const [glossaryContent, setGlossaryContent] = useState<string>('');
   const [isExtractingGlossary, setIsExtractingGlossary] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   const TEMA_1_EXERCISE = {
     columnA: [
@@ -2175,15 +2196,18 @@ function StudentPanel({ user, startAssessment, error }: any) {
       const parsed = JSON.parse(response.text);
       
       // Save the generated exercise to Firestore so it doesn't need to be generated again
-      await updateDoc(doc(db, 'assessments', assessment.id), {
-        practiceExercise: parsed
-      });
+      // ONLY if the user is an admin (students don't have write permission to assessments)
+      if (isAdmin) {
+        await updateDoc(doc(db, 'assessments', assessment.id), {
+          practiceExercise: parsed
+        });
+      }
 
       setGeneratedPracticeExercise(parsed);
       setStudentPracticeAnswers(new Array(parsed.columnB.length).fill(''));
     } catch (err: any) {
       console.error("Erro ao elaborar exercício:", err);
-      alert("Erro ao elaborar exercício: " + (err.message || String(err)));
+      setLocalError("Erro ao elaborar exercício: " + (err.message || String(err)));
     } finally {
       setIsGeneratingPractice(false);
     }
@@ -2220,6 +2244,9 @@ function StudentPanel({ user, startAssessment, error }: any) {
     
     try {
       let content = '';
+      if (!assessment.glossaryUrl.includes(',')) {
+        throw new Error('O formato do arquivo do glossário é inválido.');
+      }
       const base64Data = assessment.glossaryUrl.split(',')[1];
       const binaryData = atob(base64Data);
       const arrayBuffer = new ArrayBuffer(binaryData.length);
@@ -2289,10 +2316,11 @@ function StudentPanel({ user, startAssessment, error }: any) {
       animate={{ opacity: 1 }}
       className="space-y-8"
     >
-      {error && (
+      {localError && (
         <div className="bg-red-50 text-red-600 p-4 rounded-xl flex items-center gap-3 text-sm font-medium border border-red-100">
           <AlertCircle className="w-5 h-5 flex-shrink-0" />
-          {error}
+          {localError}
+          <button onClick={() => setLocalError(null)} className="ml-auto text-red-400 hover:text-red-600">×</button>
         </div>
       )}
       <div className="space-y-2">
