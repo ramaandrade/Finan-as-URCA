@@ -32,7 +32,8 @@ import {
   FileCheck,
   Upload,
   Award,
-  Settings
+  Settings,
+  RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
@@ -2248,19 +2249,16 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
       if (!text) return '';
       
       // 1. Standardize line endings
-      let cleaned = text.replace(/\r\n/g, '\n');
+      let cleaned = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
       
-      // 2. If the text is one big block (no double newlines), it's likely a rendering/extraction issue
-      // We'll try to identify common patterns to break it up
-      if (!cleaned.includes('\n\n')) {
-        cleaned = cleaned
-          .replace(/([.?!])\s+([A-Z])/g, '$1\n\n$2') // Break after sentences
-          .replace(/•/g, '\n\n- ') // Convert bullets to newlines
-          .replace(/([a-z])\s*([A-Z][a-z]+:)/g, '$1\n\n- **$2**') // Identify "Term: Definition" patterns
-          .replace(/(\d+\.)\s+/g, '\n\n$1 ') // Break before numbered lists
-      }
+      // 2. Force breaks for common separators found in raw text
+      cleaned = cleaned
+        .replace(/•/g, '\n\n- ')
+        .replace(/([a-z0-9])\s*([A-Z][a-zÀ-ÿ]+:)/g, '$1\n\n- **$2**') // Term: Definition
+        .replace(/([.?!])\s+([A-ZÀ-Ÿ])/g, '$1\n\n$2') // End of sentence
+        .replace(/([a-zÀ-ÿ])\n([A-ZÀ-Ÿ])/g, '$1\n\n$2'); // Single newline between sentences
 
-      // 3. Ensure all list items have double newlines before them for mobile rendering
+      // 3. Ensure all list items have double newlines before them
       cleaned = cleaned
         .replace(/\n\s*-\s*/g, '\n\n- ')
         .replace(/\n\s*(\d+)\.\s*/g, '\n\n$1. ');
@@ -2659,14 +2657,24 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
                 <div>
                   <h3 className="text-2xl font-bold text-neutral-900">Glossário: {viewingGlossary.title}</h3>
                   <p className="text-sm text-neutral-500">Conteúdo de apoio para estudo</p>
+                  <p className="text-[10px] text-amber-600 font-medium mt-1 sm:hidden">Dica: Se o texto estiver misturado, desative o Google Tradutor.</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setViewingGlossary(null)}
-                className="p-3 hover:bg-neutral-100 rounded-2xl transition-all"
-              >
-                <X className="w-6 h-6 text-neutral-400" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => handleOpenGlossary(viewingGlossary)}
+                  className="p-3 hover:bg-blue-50 text-neutral-400 hover:text-blue-600 rounded-2xl transition-all"
+                  title="Recarregar conteúdo"
+                >
+                  <RefreshCw className={`w-5 h-5 ${isExtractingGlossary ? 'animate-spin' : ''}`} />
+                </button>
+                <button 
+                  onClick={() => setViewingGlossary(null)}
+                  className="p-3 hover:bg-neutral-100 rounded-2xl transition-all"
+                >
+                  <X className="w-6 h-6 text-neutral-400" />
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-neutral-50/30">
@@ -2677,7 +2685,7 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
                 </div>
               ) : (
                 <div className="bg-white p-5 sm:p-8 rounded-2xl sm:rounded-3xl border border-neutral-100 shadow-sm overflow-hidden">
-                  <div className="markdown-body font-sans text-neutral-700 leading-relaxed break-words">
+                  <div className="markdown-body font-sans text-neutral-700 leading-relaxed break-words" translate="no">
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm, remarkBreaks]}
                       components={{

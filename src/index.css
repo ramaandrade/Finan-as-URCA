@@ -35,6 +35,7 @@
 .markdown-body {
   word-wrap: break-word;
   overflow-wrap: break-word;
+  white-space: pre-wrap;
 }
 
 .markdown-body h1 {
