@@ -722,7 +722,9 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
     questionCount: 5, 
     pointsPerQuestion: 2, 
     status: 'Available' as 'Available' | 'Unavailable',
-    assessmentStatus: 'Available' as 'Available' | 'Unavailable'
+    assessmentStatus: 'Available' as 'Available' | 'Unavailable',
+    glossaryUrl: '',
+    glossaryName: ''
   });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -1009,7 +1011,13 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
         setNewAssessment(prev => ({ ...prev, baseText: fullText.trim() }));
         setUploadSuccess(true);
       } else if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
-        const text = await file.text();
+        const arrayBuffer = await file.arrayBuffer();
+        let text = '';
+        try {
+          text = new TextDecoder('utf-8', { fatal: true }).decode(arrayBuffer);
+        } catch (e) {
+          text = new TextDecoder('iso-8859-1').decode(arrayBuffer);
+        }
         if (!text.trim()) throw new Error('O arquivo de texto está vazio.');
         setNewAssessment(prev => ({ ...prev, baseText: text.trim() }));
         setUploadSuccess(true);
@@ -1034,7 +1042,9 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
       questionCount: 5, 
       pointsPerQuestion: 2, 
       status: 'Available',
-      assessmentStatus: 'Available'
+      assessmentStatus: 'Available',
+      glossaryUrl: '',
+      glossaryName: ''
     });
     setUploadSuccess(false);
     setError(null);
@@ -1050,7 +1060,9 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
       questionCount: assessment.questionCount || 5,
       pointsPerQuestion: assessment.pointsPerQuestion || 2,
       status: assessment.status,
-      assessmentStatus: assessment.assessmentStatus || 'Available'
+      assessmentStatus: assessment.assessmentStatus || 'Available',
+      glossaryUrl: assessment.glossaryUrl || '',
+      glossaryName: assessment.glossaryName || ''
     });
     setUploadSuccess(true);
     setShowAddModal(true);
@@ -1103,7 +1115,9 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
       questionCount: 5, 
       pointsPerQuestion: 2, 
       status: 'Available',
-      assessmentStatus: 'Available'
+      assessmentStatus: 'Available',
+      glossaryUrl: '',
+      glossaryName: ''
     });
     setUploadSuccess(false);
     setError(null);
@@ -1584,6 +1598,59 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
                   )}
                 </div>
               </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-semibold">Glossário (Opcional)</label>
+                <div className="space-y-3">
+                  <textarea
+                    value={newAssessment.glossaryUrl?.startsWith('data:text/plain') ? decodeURIComponent(escape(atob(newAssessment.glossaryUrl.split(',')[1]))) : ''}
+                    onChange={(e) => {
+                      const text = e.target.value;
+                      if (!text.trim()) {
+                        setNewAssessment(prev => ({ ...prev, glossaryUrl: '', glossaryName: '' }));
+                        return;
+                      }
+                      const base64 = `data:text/plain;base64,${btoa(unescape(encodeURIComponent(text)))}`;
+                      setNewAssessment(prev => ({ ...prev, glossaryUrl: base64, glossaryName: 'Texto Manual' }));
+                    }}
+                    className="w-full h-32 p-3 text-sm rounded-xl border border-neutral-200 focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                    placeholder="Digite ou cole o glossário aqui..."
+                  />
+                  <div className="flex items-center gap-4">
+                    <label className="flex-1 border border-dashed border-neutral-300 rounded-xl p-3 flex items-center justify-center gap-2 cursor-pointer hover:bg-neutral-50 transition-all">
+                      <Upload className="w-4 h-4 text-neutral-400" />
+                      <span className="text-xs text-neutral-600 font-medium">Ou upload de arquivo (PDF/TXT)</span>
+                      <input 
+                        type="file" 
+                        accept=".pdf,.txt" 
+                        className="hidden" 
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = (event) => {
+                            const base64 = event.target?.result as string;
+                            setNewAssessment(prev => ({ ...prev, glossaryUrl: base64, glossaryName: file.name }));
+                          };
+                          reader.readAsDataURL(file);
+                        }}
+                      />
+                    </label>
+                    {newAssessment.glossaryName && (
+                      <div className="flex items-center gap-2 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100">
+                        <FileText className="w-4 h-4 text-emerald-600" />
+                        <span className="text-xs font-bold text-emerald-700 truncate max-w-[150px]">{newAssessment.glossaryName}</span>
+                        <button 
+                          onClick={() => setNewAssessment(prev => ({ ...prev, glossaryUrl: '', glossaryName: '' }))}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="flex gap-4 pt-4">
@@ -1806,60 +1873,60 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
           <motion.div 
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-white w-full max-w-4xl max-h-[90vh] rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col"
+            className="bg-white w-full max-w-xl rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col"
           >
-            <div className="p-8 border-b border-neutral-100 flex items-center justify-between bg-neutral-50/50">
+            <div className="p-8 flex items-start justify-between">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-emerald-100 rounded-2xl flex items-center justify-center">
-                  <BookOpen className="w-6 h-6 text-emerald-600" />
+                <div className="w-12 h-12 bg-[#E6F7F0] rounded-2xl flex items-center justify-center">
+                  <BookOpen className="w-6 h-6 text-[#10B981]" />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-bold">Revisão: {selectedAssessmentForReview.title}</h3>
+                  <h3 className="text-2xl font-bold text-neutral-900">Revisão: {selectedAssessmentForReview.title}</h3>
                   <p className="text-neutral-500 text-sm">Gerencie os materiais de apoio e revise o texto base.</p>
                 </div>
               </div>
               <button 
                 onClick={() => setSelectedAssessmentForReview(null)}
-                className="p-2 hover:bg-neutral-200 rounded-full transition-colors"
+                className="p-2 hover:bg-neutral-100 rounded-full transition-colors"
               >
-                <X className="w-6 h-6" />
+                <X className="w-6 h-6 text-neutral-400" />
               </button>
             </div>
             
-            <div className="p-8 overflow-y-auto flex-1 space-y-8">
+            <div className="px-8 pb-8 overflow-y-auto flex-1 space-y-6">
               {/* Support Materials Section */}
-              <div className="grid sm:grid-cols-2 gap-6">
+              <div className="space-y-6">
                 {/* Exercise Upload */}
-                <div className="p-6 bg-emerald-50/50 rounded-3xl border border-emerald-100 space-y-4">
+                <div className="p-6 bg-[#F0FDF9] rounded-[2rem] border border-[#D1FAE5] space-y-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center">
-                      <FileCheck className="w-5 h-5 text-emerald-600" />
+                    <div className="w-10 h-10 bg-[#D1FAE5] rounded-xl flex items-center justify-center">
+                      <FileCheck className="w-5 h-5 text-[#059669]" />
                     </div>
                     <div>
-                      <h4 className="font-bold text-emerald-900">Exercício</h4>
-                      <p className="text-xs text-emerald-600">Upload de material prático</p>
+                      <h4 className="font-bold text-[#064E3B]">Exercício</h4>
+                      <p className="text-xs text-[#059669]">Upload de material prático</p>
                     </div>
                   </div>
                   
                   {selectedAssessmentForReview.exerciseUrl ? (
-                    <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-emerald-200">
-                      <span className="text-sm font-medium truncate max-w-[150px]">{selectedAssessmentForReview.exerciseName}</span>
+                    <div className="flex items-center justify-between bg-white p-4 rounded-xl border border-neutral-200">
+                      <span className="text-sm font-medium text-neutral-700 truncate">{selectedAssessmentForReview.exerciseName}</span>
                       <button 
                         onClick={async () => {
                           const updated = { ...selectedAssessmentForReview, exerciseUrl: '', exerciseName: '' };
                           await updateDoc(doc(db, 'assessments', selectedAssessmentForReview.id), { exerciseUrl: '', exerciseName: '' });
                           setSelectedAssessmentForReview(updated);
                         }}
-                        className="text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors"
+                        className="text-red-400 hover:text-red-600 transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   ) : (
-                    <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-emerald-200 rounded-2xl cursor-pointer hover:bg-emerald-100/50 transition-all">
-                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                        <Upload className="w-6 h-6 text-emerald-400 mb-2" />
-                        <p className="text-xs text-emerald-500 font-medium">Clique para upload</p>
+                    <label className="flex flex-col items-center justify-center w-full h-20 border-2 border-dashed border-[#A7F3D0] rounded-2xl cursor-pointer hover:bg-[#D1FAE5]/50 transition-all">
+                      <div className="flex items-center gap-2">
+                        <Upload className="w-5 h-5 text-[#34D399]" />
+                        <p className="text-xs text-[#059669] font-bold">Upload de arquivo</p>
                       </div>
                       <input 
                         type="file" 
@@ -1891,74 +1958,93 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
                   )}
                 </div>
 
-                {/* Glossary Upload */}
-                <div className="p-6 bg-blue-50/50 rounded-3xl border border-blue-100 space-y-4">
+                {/* Glossary Section */}
+                <div className="p-6 bg-[#F0F9FF] rounded-[2rem] border border-[#E0F2FE] space-y-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
-                      <Book className="w-5 h-5 text-blue-600" />
+                    <div className="w-10 h-10 bg-[#E0F2FE] rounded-xl flex items-center justify-center">
+                      <Book className="w-5 h-5 text-[#0284C7]" />
                     </div>
                     <div>
-                      <h4 className="font-bold text-blue-900">Glossário</h4>
-                      <p className="text-xs text-blue-600">Termos e definições</p>
+                      <h4 className="font-bold text-[#0C4A6E]">Glossário</h4>
+                      <p className="text-xs text-[#0284C7]">Termos e definições</p>
                     </div>
                   </div>
 
-                  {selectedAssessmentForReview.glossaryUrl ? (
-                    <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-blue-200">
-                      <span className="text-sm font-medium truncate max-w-[150px]">{selectedAssessmentForReview.glossaryName}</span>
-                      <button 
-                        onClick={async () => {
-                          const updated = { ...selectedAssessmentForReview, glossaryUrl: '', glossaryName: '' };
-                          await updateDoc(doc(db, 'assessments', selectedAssessmentForReview.id), { glossaryUrl: '', glossaryName: '' });
-                          setSelectedAssessmentForReview(updated);
-                        }}
-                        className="text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ) : (
-                    <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-blue-200 rounded-2xl cursor-pointer hover:bg-blue-100/50 transition-all">
-                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                        <Upload className="w-6 h-6 text-blue-400 mb-2" />
-                        <p className="text-xs text-blue-500 font-medium">Clique para upload</p>
+                  <div className="space-y-3">
+                    {selectedAssessmentForReview.glossaryUrl ? (
+                      <div className="flex items-center justify-between bg-white p-4 rounded-xl border border-neutral-200">
+                        <span className="text-sm font-medium text-neutral-700 truncate">{selectedAssessmentForReview.glossaryName}</span>
+                        <button 
+                          onClick={async () => {
+                            const updated = { ...selectedAssessmentForReview, glossaryUrl: '', glossaryName: '' };
+                            await updateDoc(doc(db, 'assessments', selectedAssessmentForReview.id), { glossaryUrl: '', glossaryName: '' });
+                            setSelectedAssessmentForReview(updated);
+                          }}
+                          className="text-red-400 hover:text-red-600 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
-                      <input 
-                        type="file" 
-                        className="hidden" 
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          try {
-                            const reader = new FileReader();
-                            reader.onload = async (event) => {
-                              try {
+                    ) : (
+                      <div className="space-y-3">
+                        <textarea
+                          value={selectedAssessmentForReview.glossaryUrl?.startsWith('data:text/plain') ? decodeURIComponent(escape(atob(selectedAssessmentForReview.glossaryUrl.split(',')[1]))) : ''}
+                          onChange={async (e) => {
+                            const text = e.target.value;
+                            if (!text.trim()) {
+                              const updated = { ...selectedAssessmentForReview, glossaryUrl: '', glossaryName: '' };
+                              setSelectedAssessmentForReview(updated);
+                              await updateDoc(doc(db, 'assessments', selectedAssessmentForReview.id), { glossaryUrl: '', glossaryName: '' });
+                              return;
+                            }
+                            const base64 = `data:text/plain;base64,${btoa(unescape(encodeURIComponent(text)))}`;
+                            const updated = { ...selectedAssessmentForReview, glossaryUrl: base64, glossaryName: 'Texto Manual' };
+                            setSelectedAssessmentForReview(updated);
+                          }}
+                          onBlur={async (e) => {
+                            const text = e.target.value;
+                            if (!text.trim()) return;
+                            const base64 = `data:text/plain;base64,${btoa(unescape(encodeURIComponent(text)))}`;
+                            await updateDoc(doc(db, 'assessments', selectedAssessmentForReview.id), { glossaryUrl: base64, glossaryName: 'Texto Manual' });
+                          }}
+                          className="w-full h-24 p-3 text-sm rounded-xl border border-[#BAE6FD] focus:ring-2 focus:ring-blue-500 outline-none transition-all bg-white"
+                          placeholder="Digite ou cole o glossário aqui..."
+                        />
+
+                        <label className="flex items-center justify-center w-full h-12 border-2 border-dashed border-[#BAE6FD] rounded-2xl cursor-pointer hover:bg-[#E0F2FE]/50 transition-all">
+                          <div className="flex items-center gap-2">
+                            <Upload className="w-4 h-4 text-[#38BDF8]" />
+                            <span className="text-xs text-[#0284C7] font-bold">Upload de arquivo</span>
+                          </div>
+                          <input 
+                            type="file" 
+                            accept=".pdf,.txt"
+                            className="hidden" 
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              const reader = new FileReader();
+                              reader.onload = async (event) => {
                                 const base64 = event.target?.result as string;
                                 const updated = { ...selectedAssessmentForReview, glossaryUrl: base64, glossaryName: file.name };
                                 await updateDoc(doc(db, 'assessments', selectedAssessmentForReview.id), { glossaryUrl: base64, glossaryName: file.name });
                                 setSelectedAssessmentForReview(updated);
-                              } catch (err: any) {
-                                console.error('Erro ao salvar glossário:', err);
-                                setError(`Erro ao salvar glossário: ${err.message}`);
-                              }
-                            };
-                            reader.readAsDataURL(file);
-                          } catch (err: any) {
-                            console.error('Erro ao ler arquivo:', err);
-                            setError(`Erro ao ler arquivo: ${err.message}`);
-                          }
-                        }}
-                      />
-                    </label>
-                  )}
+                              };
+                              reader.readAsDataURL(file);
+                            }}
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="p-8 border-t border-neutral-100 bg-neutral-50/50 flex justify-end">
+            <div className="p-8 flex justify-end">
               <button 
                 onClick={() => setSelectedAssessmentForReview(null)}
-                className="bg-neutral-900 text-white px-8 py-3 rounded-xl font-bold hover:bg-neutral-800 transition-all"
+                className="bg-[#171717] text-white px-10 py-4 rounded-2xl font-bold hover:bg-neutral-800 transition-all shadow-lg"
               >
                 Fechar Revisão
               </button>
@@ -2303,7 +2389,12 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
         }
       } else {
         try {
-          content = new TextDecoder().decode(arrayBuffer);
+          // Try UTF-8 first, if it fails (fatal: true), try ISO-8859-1 (common for Portuguese)
+          try {
+            content = new TextDecoder('utf-8', { fatal: true }).decode(arrayBuffer);
+          } catch (e) {
+            content = new TextDecoder('iso-8859-1').decode(arrayBuffer);
+          }
         } catch (decodeErr: any) {
           console.error('Erro ao decodificar texto:', decodeErr);
           throw new Error('Não foi possível decodificar o arquivo de texto.');
