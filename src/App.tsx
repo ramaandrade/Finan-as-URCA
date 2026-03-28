@@ -2410,16 +2410,18 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
         const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
         const response = await genAI.models.generateContent({
           model: "gemini-3-flash-preview",
-          contents: `Transforme o seguinte texto bruto em um glossário formatado em Markdown elegante e profissional.
+          contents: `Transforme o seguinte texto bruto em um glossário formatado em Markdown elegante e profissional, OTIMIZADO PARA CELULAR.
           
           REGRAS DE FORMATAÇÃO (ESTRITAMENTE OBRIGATÓRIAS):
-          1. Use # para o Título Principal.
-          2. Use ## para Categorias ou Seções.
+          1. Use # para o Título Principal (apenas um).
+          2. Use ## para Categorias ou Seções Principais.
           3. Use listas com marcadores (-) para TODOS os termos. 
-             Exemplo: - **Termo**: Definição.
-          4. NUNCA use texto corrido ou parágrafos longos. Cada termo deve ser um item de lista separado.
-          5. IMPORTANTE: Use DUAS QUEBRAS DE LINHA (Enter duas vezes) entre CADA item da lista. Isso é vital para o celular.
-          6. Se houver subtópicos, use indentação (dois espaços antes do marcador).
+             Exemplo: - **Termo**: Definição clara e concisa.
+          4. NUNCA use tabelas (difícil de ler no celular).
+          5. NUNCA use parágrafos longos. Se uma definição for longa, quebre-a em itens de lista menores.
+          6. IMPORTANTE: Use DUAS QUEBRAS DE LINHA (Enter duas vezes) entre CADA item da lista. Isso cria um "espaço de respiro" essencial para a leitura em telas pequenas.
+          7. Destaque termos importantes em **negrito**.
+          8. Mantenha a linguagem simples e direta.
           
           REGRAS DE RESPOSTA:
           - Retorne APENAS o conteúdo em Markdown.
@@ -2805,17 +2807,19 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm, remarkBreaks]}
                         components={{
-                          h1: ({node, ...props}) => <h1 className="text-blue-700 font-bold text-2xl sm:text-3xl mb-6 border-b pb-2 border-blue-100" {...props} />,
-                          h2: ({node, ...props}) => <h2 className="text-emerald-700 font-bold text-xl sm:text-2xl mb-4 mt-8" {...props} />,
-                          h3: ({node, ...props}) => <h3 className="text-amber-700 font-bold text-lg sm:text-xl mb-3 mt-6" {...props} />,
-                          p: ({node, ...props}) => <p className="mb-6 last:mb-0 text-sm sm:text-base leading-relaxed" {...props} />,
-                          ul: ({node, ...props}) => <ul className="list-disc pl-5 sm:pl-8 mb-6 space-y-4 text-sm sm:text-base" {...props} />,
-                          ol: ({node, ...props}) => <ol className="list-decimal pl-5 sm:pl-8 mb-6 space-y-4 text-sm sm:text-base" {...props} />,
-                          li: ({node, ...props}) => <li className="text-neutral-700 leading-relaxed" {...props} />,
-                          blockquote: ({node, ...props}) => <blockquote className="border-left-4 border-neutral-200 pl-4 italic my-6 text-neutral-600" {...props} />,
-                          code: ({node, ...props}) => <code className="bg-neutral-100 px-1.5 py-0.5 rounded text-sm font-mono" {...props} />,
-                          strong: ({node, ...props}) => <strong className="text-neutral-900 font-bold" {...props} />,
-                          em: ({node, ...props}) => <em className="text-neutral-600 italic" {...props} />,
+                          h1: ({node, ...props}) => <h1 className="text-blue-700 font-bold text-xl sm:text-3xl mb-6 border-b pb-2 border-blue-100 uppercase tracking-tight" {...props} />,
+                          h2: ({node, ...props}) => <h2 className="text-emerald-700 font-bold text-lg sm:text-2xl mb-4 mt-8 border-l-4 border-emerald-500 pl-3" {...props} />,
+                          h3: ({node, ...props}) => <h3 className="text-amber-700 font-bold text-base sm:text-xl mb-3 mt-6" {...props} />,
+                          p: ({node, ...props}) => <p className="mb-4 last:mb-0 text-sm sm:text-base leading-relaxed text-neutral-600" {...props} />,
+                          ul: ({node, ...props}) => <ul className="list-none pl-0 mb-6 space-y-6" {...props} />,
+                          ol: ({node, ...props}) => <ol className="list-decimal pl-5 sm:pl-8 mb-6 space-y-6" {...props} />,
+                          li: ({node, ...props}) => (
+                            <li className="text-neutral-700 leading-relaxed bg-neutral-50/50 p-4 rounded-2xl border border-neutral-100/50 shadow-sm" {...props} />
+                          ),
+                          blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-blue-200 pl-4 italic my-6 text-neutral-500 bg-blue-50/30 py-2 rounded-r-lg" {...props} />,
+                          code: ({node, ...props}) => <code className="bg-neutral-100 px-1.5 py-0.5 rounded text-xs font-mono text-blue-600" {...props} />,
+                          strong: ({node, ...props}) => <strong className="text-neutral-900 font-bold border-b-2 border-blue-100" {...props} />,
+                          em: ({node, ...props}) => <em className="text-neutral-500 italic" {...props} />,
                         }}
                       >
                         {glossaryContent || 'Nenhum conteúdo encontrado no glossário.'}
