@@ -2247,47 +2247,69 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
       if (!assessment.glossaryUrl.includes(',')) {
         throw new Error('O formato do arquivo do glossário é inválido.');
       }
-      const base64Data = assessment.glossaryUrl.split(',')[1];
-      const binaryData = atob(base64Data);
-      const arrayBuffer = new ArrayBuffer(binaryData.length);
-      const view = new Uint8Array(arrayBuffer);
-      for (let i = 0; i < binaryData.length; i++) {
-        view[i] = binaryData.charCodeAt(i);
-      }
+
+      // Use fetch to get arrayBuffer from data URL - more efficient than atob
+      const dataUrlResponse = await fetch(assessment.glossaryUrl);
+      const arrayBuffer = await dataUrlResponse.arrayBuffer();
 
       if (assessment.glossaryUrl.includes('application/pdf')) {
-        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-        const pdf = await loadingTask.promise;
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const textContent = await page.getTextContent();
-          content += textContent.items.map((item: any) => item.str || '').join(' ') + '\n';
+        try {
+          if (!pdfjsLib || !pdfjsLib.getDocument) {
+            throw new Error('A biblioteca de processamento de PDF não está disponível.');
+          }
+          const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+          const pdf = await loadingTask.promise;
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            content += textContent.items.map((item: any) => item.str || '').join(' ') + '\n';
+          }
+        } catch (pdfErr: any) {
+          console.error('Erro ao processar PDF:', pdfErr);
+          throw new Error(`Erro ao processar PDF: ${pdfErr.message || 'Erro desconhecido'}`);
         }
       } else {
-        content = new TextDecoder().decode(arrayBuffer);
+        try {
+          content = new TextDecoder().decode(arrayBuffer);
+        } catch (decodeErr: any) {
+          console.error('Erro ao decodificar texto:', decodeErr);
+          throw new Error('Não foi possível decodificar o arquivo de texto.');
+        }
+      }
+
+      if (!content.trim()) {
+        throw new Error('O arquivo do glossário parece estar vazio ou não pôde ser lido.');
       }
 
       // Use Gemini to format the extracted text as Markdown
-      const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const response = await genAI.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Transforme o seguinte texto bruto em um glossário formatado em Markdown elegante. 
-        Use cabeçalhos (#, ##), listas com marcadores (-) e negrito (**termo**) para os termos. 
-        Mantenha o conteúdo fiel ao original, mas organize-o de forma clara e legível.
-        
-        REGRAS IMPORTANTES:
-        - Retorne APENAS o conteúdo em Markdown.
-        - NÃO inclua textos introdutórios como "Aqui está o glossário..." ou "Espero que ajude...".
-        - Comece diretamente com o título ou o primeiro termo.
-        
-        Texto original:
-        "${content}"`,
-      });
+      let formattedContent = content;
+      try {
+        const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const response = await genAI.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: `Transforme o seguinte texto bruto em um glossário formatado em Markdown elegante. 
+          Use cabeçalhos (#, ##), listas com marcadores (-) e negrito (**termo**) para os termos. 
+          Mantenha o conteúdo fiel ao original, mas organize-o de forma clara e legível.
+          
+          REGRAS IMPORTANTES:
+          - Retorne APENAS o conteúdo em Markdown.
+          - NÃO inclua textos introdutórios como "Aqui está o glossário..." ou "Espero que ajude...".
+          - Comece diretamente com o título ou o primeiro termo.
+          
+          Texto original:
+          "${content.substring(0, 10000)}"`, // Limit content to avoid token limits
+        });
+        formattedContent = response.text || content;
+      } catch (geminiErr: any) {
+        console.error('Erro ao formatar com Gemini:', geminiErr);
+        // Fallback to raw content if Gemini fails, but still show the content
+        formattedContent = content;
+      }
 
-      setGlossaryContent(response.text || content);
-    } catch (err) {
+      setGlossaryContent(formattedContent);
+    } catch (err: any) {
       console.error('Erro ao carregar glossário:', err);
-      setGlossaryContent('Não foi possível carregar o conteúdo do glossário.');
+      setGlossaryContent(`Não foi possível carregar o conteúdo do glossário: ${err.message}`);
     } finally {
       setIsExtractingGlossary(false);
     }
