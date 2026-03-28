@@ -169,6 +169,91 @@ interface Student {
 // Gemini Setup
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
+const TEMA_1_QUESTIONS = [
+  {
+    question: "O que são finanças em termos simples?",
+    options: [
+      "A gestão de recursos humanos em uma organização.",
+      "A gestão do dinheiro, envolvendo decisões sobre como obter, alocar e utilizar recursos financeiros.",
+      "O estudo das leis que regem o comércio internacional.",
+      "A análise de mercado para lançamento de novos produtos."
+    ],
+    correctIndex: 1,
+    explanation: "Em termos simples, finanças é a gestão do dinheiro. Ela envolve decisões sobre como obter, alocar e utilizar recursos financeiros em empresas, governos ou para indivíduos."
+  },
+  {
+    question: "Qual é a definição de conformidade (compliance) no contexto empresarial?",
+    options: [
+      "O ato de seguir regras, leis, regulamentos e padrões estabelecidos por órgãos reguladores.",
+      "A estratégia de marketing para superar a concorrência.",
+      "O processo de contratação de novos funcionários.",
+      "A análise de riscos puramente financeiros."
+    ],
+    correctIndex: 0,
+    explanation: "Conformidade se refere ao ato de seguir regras, leis, regulamentos e padrões estabelecidos por órgãos reguladores, governos ou organizações."
+  },
+  {
+    question: "Qual é o principal objetivo da Lei Sarbanes-Oxley (SOX)?",
+    options: [
+      "Reduzir impostos para grandes corporações.",
+      "Aumentar a produtividade dos funcionários.",
+      "Eliminar problemas de divulgação e conflitos de interesses, garantindo transparência e responsabilidade.",
+      "Facilitar a fusão entre empresas de diferentes países."
+    ],
+    correctIndex: 2,
+    explanation: "O principal objetivo da Lei Sarbanes-Oxley (SOX) é eliminar problemas de divulgação e conflitos de interesses, estabelecendo controles e regulamentações mais rígidos."
+  },
+  {
+    question: "O que a governança corporativa representa em uma organização?",
+    options: [
+      "O departamento responsável pela limpeza e manutenção.",
+      "O conjunto de práticas, processos e estruturas que direcionam e controlam uma organização.",
+      "A equipe de vendas externa da empresa.",
+      "O software utilizado para controle de estoque."
+    ],
+    correctIndex: 1,
+    explanation: "A governança corporativa representa o conjunto de práticas, processos e estruturas que direcionam e controlam uma organização, definindo as regras para a tomada de decisões."
+  },
+  {
+    question: "Como a transparência na governança corporativa ajuda a mitigar problemas de agência?",
+    options: [
+      "Aumentando os salários dos administradores.",
+      "Reduzindo a assimetria de informação entre acionistas e administradores.",
+      "Contratando mais auditores externos.",
+      "Eliminando a necessidade de reuniões de conselho."
+    ],
+    correctIndex: 1,
+    explanation: "Ao exigir a divulgação clara e precisa de informações, a transparência na governança corporativa reduz a assimetria de informação entre acionistas e administradores."
+  }
+];
+
+const TEMA_1_EXERCISE = {
+  columnA: [
+    { id: 1, text: "O que são finanças em termos simples e quais tipos de entidades as finanças envolvem?" },
+    { id: 2, text: "Cite e explique brevemente dois conceitos básicos em finanças mencionados no texto." },
+    { id: 3, text: "Por que o conhecimento em finanças é fundamental para empreendedores?" },
+    { id: 4, text: "Qual é a definição de conformidade no contexto empresarial?" },
+    { id: 5, text: "Como a ética empresarial se manifesta nas relações com clientes?" },
+    { id: 6, text: "Cite e explique brevemente uma forma comum de fraude no mundo corporativo." },
+    { id: 7, text: "Qual é o principal objetivo da Lei Sarbanes-Oxley (SOX)?" },
+    { id: 8, text: "O que a governança corporativa representa em uma organização?" },
+    { id: 9, text: "Como a transparência na governança corporativa ajuda a mitigar problemas de agência?" },
+    { id: 10, text: "Qual é o principal objetivo da gestão pública?" }
+  ],
+  columnB: [
+    { text: "Para empreendedores, o conhecimento em finanças é fundamental para tomar decisões estratégicas de investimento e financiamento que garantam o crescimento e a sustentabilidade do negócio.", correctId: 3 },
+    { text: "Fraudes contábeis são a manipulação de informações financeiras para ocultar a verdadeira situação da empresa. (outras respostas válidas incluem Fraudes em contratos e Fraudes em pagamentos).", correctId: 6 },
+    { text: "O principal objetivo da Lei Sarbanes-Oxley (SOX) é eliminar problemas de divulgação e conflitos de interesses, estabelecendo controles e regulamentações mais rígidos para garantir a transparência e a responsabilidade corporativa.", correctId: 7 },
+    { text: "Ao exigir a divulgação clara e precisa de informações, a transparência na governança corporativa reduz a assimetria de informação entre acionistas e administradores, dificultando a ocultação de dados prejudiciais.", correctId: 9 },
+    { text: "A ética empresarial se manifesta nas relações com clientes ao oferecer produtos e serviços de qualidade, respeitar os direitos do consumidor e agir com transparência.", correctId: 5 },
+    { text: "O principal objetivo da gestão pública é focar no bem comum e prestar serviços à sociedade, como educação, saúde e segurança.", correctId: 10 },
+    { text: "Conformidade se refere ao ato de seguir regras, leis, regulamentos e padrões estabelecidos por órgãos reguladores, governos ou organizações, garantindo que uma empresa opere dentro dos limites legais e éticos.", correctId: 4 },
+    { text: "A governança corporativa representa o conjunto de práticas, processos e estruturas que direcionam e controlam uma organização, definindo as regras para a tomada de decisões e o equilíbrio dos interesses dos stakeholders.", correctId: 8 },
+    { text: "Ativo é qualquer bem ou direito que gera valor econômico, como dinheiro ou imóveis. Passivo são obrigações financeiras, como empréstimos ou contas a pagar. (outras respostas válidas incluem Patrimônio Líquido, Receita, Despesa, Lucro, Prejuízo).", correctId: 2 },
+    { text: "Em termos simples, finanças é a gestão do dinheiro. Ela envolve decisões sobre como obter, alocar e utilizar recursos financeiros em empresas, governos ou para indivíduos.", correctId: 1 }
+  ]
+};
+
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -344,6 +429,20 @@ export default function App() {
 
   const startAssessment = async (assessment: Assessment) => {
     console.log('Iniciando avaliação:', assessment.title);
+    
+    // Bypassing AI for Tema 1 to ensure it works even when quota is hit
+    if (assessment.title.toLowerCase().includes('tema 1')) {
+      setQuestions(TEMA_1_QUESTIONS);
+      setCurrentAssessment(assessment);
+      setCurrentQuestionIndex(0);
+      setStudentAnswers(new Array(TEMA_1_QUESTIONS.length).fill(-1));
+      setTimeLeft(assessment.timeLimit * 60);
+      setView('test');
+      setLoading(false);
+      setIsGeneratingAssessment(false);
+      return;
+    }
+
     setLoading(true);
     setIsGeneratingAssessment(true);
     setError(null);
@@ -2396,33 +2495,6 @@ function StudentPanel({ user, isAdmin, startAssessment, error, handleOpenGlossar
   const [studentPracticeAnswers, setStudentPracticeAnswers] = useState<string[]>([]);
   const [showPracticeResult, setShowPracticeResult] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
-
-  const TEMA_1_EXERCISE = {
-    columnA: [
-      { id: 1, text: "O que são finanças em termos simples e quais tipos de entidades as finanças envolvem?" },
-      { id: 2, text: "Cite e explique brevemente dois conceitos básicos em finanças mencionados no texto." },
-      { id: 3, text: "Por que o conhecimento em finanças é fundamental para empreendedores?" },
-      { id: 4, text: "Qual é a definição de conformidade no contexto empresarial?" },
-      { id: 5, text: "Como a ética empresarial se manifesta nas relações com clientes?" },
-      { id: 6, text: "Cite e explique brevemente uma forma comum de fraude no mundo corporativo." },
-      { id: 7, text: "Qual é o principal objetivo da Lei Sarbanes-Oxley (SOX)?" },
-      { id: 8, text: "O que a governança corporativa representa em uma organização?" },
-      { id: 9, text: "Como a transparência na governança corporativa ajuda a mitigar problemas de agência?" },
-      { id: 10, text: "Qual é o principal objetivo da gestão pública?" }
-    ],
-    columnB: [
-      { text: "Para empreendedores, o conhecimento em finanças é fundamental para tomar decisões estratégicas de investimento e financiamento que garantam o crescimento e a sustentabilidade do negócio.", correctId: 3 },
-      { text: "Fraudes contábeis são a manipulação de informações financeiras para ocultar a verdadeira situação da empresa. (outras respostas válidas incluem Fraudes em contratos e Fraudes em pagamentos).", correctId: 6 },
-      { text: "O principal objetivo da Lei Sarbanes-Oxley (SOX) é eliminar problemas de divulgação e conflitos de interesses, estabelecendo controles e regulamentações mais rígidos para garantir a transparência e a responsabilidade corporativa.", correctId: 7 },
-      { text: "Ao exigir a divulgação clara e precisa de informações, a transparência na governança corporativa reduz a assimetria de informação entre acionistas e administradores, dificultando a ocultação de dados prejudiciais.", correctId: 9 },
-      { text: "A ética empresarial se manifesta nas relações com clientes ao oferecer produtos e serviços de qualidade, respeitar os direitos do consumidor e agir com transparência.", correctId: 5 },
-      { text: "O principal objetivo da gestão pública é focar no bem comum e prestar serviços à sociedade, como educação, saúde e segurança.", correctId: 10 },
-      { text: "Conformidade se refere ao ato de seguir regras, leis, regulamentos e padrões estabelecidos por órgãos reguladores, governos ou organizações, garantindo que uma empresa opere dentro dos limites legais e éticos.", correctId: 4 },
-      { text: "A governança corporativa representa o conjunto de práticas, processos e estruturas que direcionam e controlam uma organização, definindo as regras para a tomada de decisões e o equilíbrio dos interesses dos stakeholders.", correctId: 8 },
-      { text: "Ativo é qualquer bem ou direito que gera valor econômico, como dinheiro ou imóveis. Passivo são obrigações financeiras, como empréstimos ou contas a pagar. (outras respostas válidas incluem Patrimônio Líquido, Receita, Despesa, Lucro, Prejuízo).", correctId: 2 },
-      { text: "Em termos simples, finanças é a gestão do dinheiro. Ela envolve decisões sobre como obter, alocar e utilizar recursos financeiros em empresas, governos ou para indivíduos.", correctId: 1 }
-    ]
-  };
 
   const generatePractice = async (assessment: Assessment) => {
     if (!assessment.exerciseUrl) return;
