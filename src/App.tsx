@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
   collection, 
@@ -2287,14 +2288,21 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
         const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
         const response = await genAI.models.generateContent({
           model: "gemini-3-flash-preview",
-          contents: `Transforme o seguinte texto bruto em um glossário formatado em Markdown elegante. 
-          Use cabeçalhos (#, ##), listas com marcadores (-) e negrito (**termo**) para os termos. 
-          Mantenha o conteúdo fiel ao original, mas organize-o de forma clara e legível.
+          contents: `Transforme o seguinte texto bruto em um glossário formatado em Markdown elegante e profissional.
           
-          REGRAS IMPORTANTES:
+          REGRAS DE FORMATAÇÃO:
+          1. Use # para o Título Principal.
+          2. Use ## para Categorias ou Seções.
+          3. Use ### para Subseções se necessário.
+          4. Para cada termo, use a seguinte estrutura: **Termo**: Definição.
+          5. Use listas com marcadores (-) para organizar itens.
+          6. IMPORTANTE: Use DUAS QUEBRAS DE LINHA (Enter duas vezes) entre parágrafos e itens para garantir a renderização correta.
+          7. Mantenha o conteúdo fiel ao original, mas organize-o de forma clara.
+          
+          REGRAS DE RESPOSTA:
           - Retorne APENAS o conteúdo em Markdown.
-          - NÃO inclua textos introdutórios como "Aqui está o glossário..." ou "Espero que ajude...".
-          - Comece diretamente com o título ou o primeiro termo.
+          - NÃO inclua textos introdutórios ou conclusivos.
+          - Comece diretamente com o conteúdo.
           
           Texto original:
           "${content.substring(0, 10000)}"`, // Limit content to avoid token limits
@@ -2636,21 +2644,26 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-8 bg-neutral-50/30">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-neutral-50/30">
               {isExtractingGlossary ? (
                 <div className="flex flex-col items-center justify-center py-20 space-y-4">
                   <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
-                  <p className="text-neutral-500 font-medium">Carregando conteúdo do glossário...</p>
+                  <p className="text-neutral-500 font-medium text-center px-4">Carregando e formatando conteúdo do glossário...</p>
                 </div>
               ) : (
-                <div className="bg-white p-8 rounded-3xl border border-neutral-100 shadow-sm">
-                  <div className="markdown-body prose prose-neutral max-w-none font-sans text-neutral-700 leading-relaxed">
+                <div className="bg-white p-5 sm:p-8 rounded-2xl sm:rounded-3xl border border-neutral-100 shadow-sm overflow-hidden">
+                  <div className="markdown-body prose prose-neutral max-w-none font-sans text-neutral-700 leading-relaxed break-words">
                     <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
                       components={{
-                        h1: ({node, ...props}) => <h1 className="text-blue-700 font-bold text-3xl mb-6 border-b pb-2 border-blue-100" {...props} />,
-                        h2: ({node, ...props}) => <h2 className="text-emerald-700 font-bold text-2xl mb-4 mt-8" {...props} />,
-                        h3: ({node, ...props}) => <h3 className="text-amber-700 font-bold text-xl mb-3 mt-6" {...props} />,
+                        h1: ({node, ...props}) => <h1 className="text-blue-700 font-bold text-2xl sm:text-3xl mb-6 border-b pb-2 border-blue-100" {...props} />,
+                        h2: ({node, ...props}) => <h2 className="text-emerald-700 font-bold text-xl sm:text-2xl mb-4 mt-8" {...props} />,
+                        h3: ({node, ...props}) => <h3 className="text-amber-700 font-bold text-lg sm:text-xl mb-3 mt-6" {...props} />,
+                        p: ({node, ...props}) => <p className="mb-4 last:mb-0 text-sm sm:text-base" {...props} />,
+                        ul: ({node, ...props}) => <ul className="list-disc pl-5 sm:pl-6 mb-4 space-y-2 text-sm sm:text-base" {...props} />,
+                        li: ({node, ...props}) => <li className="text-neutral-700" {...props} />,
                         strong: ({node, ...props}) => <strong className="text-neutral-900 font-bold" {...props} />,
+                        em: ({node, ...props}) => <em className="text-neutral-600 italic" {...props} />,
                       }}
                     >
                       {glossaryContent || 'Nenhum conteúdo encontrado no glossário.'}
