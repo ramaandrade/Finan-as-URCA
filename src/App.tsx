@@ -470,13 +470,16 @@ export default function App() {
       // 1. Standardize line endings
       let cleaned = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
       
-      // 2. Ensure all list items have double newlines before them for better spacing
-      // but don't use aggressive regex that splits words
+      // 2. Fix common AI list formatting issues
+      // Ensure space after dash or asterisk
+      cleaned = cleaned.replace(/^(\s*)[-*](\S)/gm, '$1- $2');
+      
+      // 3. Ensure all list items have double newlines before them for better spacing
       cleaned = cleaned
-        .replace(/\n\s*-\s*/g, '\n\n- ')
-        .replace(/\n\s*(\d+)\.\s*/g, '\n\n$1. ');
+        .replace(/\n\s*[-*]\s+/g, '\n\n- ')
+        .replace(/\n\s*(\d+)\.\s+/g, '\n\n$1. ');
 
-      // 3. Final cleanup of multiple newlines
+      // 4. Final cleanup of multiple newlines
       cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
       
       return cleaned;
@@ -532,16 +535,22 @@ export default function App() {
           model: "gemini-3-flash-preview",
           contents: `Transforme o seguinte texto bruto em um glossário formatado em Markdown elegante e profissional, OTIMIZADO PARA CELULAR.
           
+          ESTRUTURA DESEJADA (IGUAL AO TEMA 1):
+          1. Título Principal (# Título)
+          2. Subtítulos (## Categoria) se houver divisões no texto.
+          3. Termos e Definições SEMPRE como itens de lista (- **Termo**: Definição).
+          
           REGRAS DE FORMATAÇÃO (ESTRITAMENTE OBRIGATÓRIAS):
           1. Use # para o Título Principal (apenas um).
           2. Use ## para Categorias ou Seções Principais.
-          3. Use listas com marcadores (-) para TODOS os termos. 
+          3. Use OBRIGATORIAMENTE listas com marcadores (-) para TODOS os termos e definições. Cada termo deve ser um item de lista separado começando com "- ".
              Exemplo: - **Termo**: Definição clara e concisa.
           4. NUNCA use tabelas (difícil de ler no celular).
-          5. NUNCA use parágrafos longos. Se uma definição for longa, quebre-a em itens de lista menores.
-          6. IMPORTANTE: Use DUAS QUEBRAS DE LINHA (Enter duas vezes) entre CADA item da lista. Isso cria um "espaço de respiro" essencial para a leitura em telas pequenas.
+          5. NUNCA use parágrafos longos fora de itens de lista. Se uma definição for longa, mantenha-a dentro do item de lista.
+          6. IMPORTANTE: Use DUAS QUEBRAS DE LINHA (Enter duas vezes) entre CADA item da lista. Isso é CRUCIAL para que cada termo apareça em seu próprio "card" visual.
           7. Destaque termos importantes em **negrito**.
           8. Mantenha a linguagem simples e direta.
+          9. Certifique-se de que NÃO existam termos soltos como parágrafos. Tudo deve estar dentro de um item de lista.
           
           REGRAS DE RESPOSTA:
           - Retorne APENAS o conteúdo em Markdown.
