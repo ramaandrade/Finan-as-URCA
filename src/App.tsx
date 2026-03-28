@@ -37,6 +37,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
   collection, 
@@ -2243,6 +2244,17 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
     setGlossaryContent('');
     setIsExtractingGlossary(true);
     
+    const cleanMarkdown = (text: string) => {
+      if (!text) return '';
+      // Ensure double newlines before list items and between paragraphs
+      // This helps rendering on mobile where single newlines might be ignored
+      return text
+        .replace(/\r\n/g, '\n')
+        .replace(/\n(?=- )/g, '\n\n')
+        .replace(/(?<=- .*)\n(?=[^- ])/g, '\n\n')
+        .trim();
+    };
+
     try {
       let content = '';
       if (!assessment.glossaryUrl.includes(',')) {
@@ -2290,14 +2302,13 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
           model: "gemini-3-flash-preview",
           contents: `Transforme o seguinte texto bruto em um glossário formatado em Markdown elegante e profissional.
           
-          REGRAS DE FORMATAÇÃO:
+          REGRAS DE FORMATAÇÃO (ESTRITAMENTE OBRIGATÓRIAS):
           1. Use # para o Título Principal.
           2. Use ## para Categorias ou Seções.
-          3. Use ### para Subseções se necessário.
-          4. Para cada termo, use a seguinte estrutura: **Termo**: Definição.
-          5. Use listas com marcadores (-) para organizar itens.
-          6. IMPORTANTE: Use DUAS QUEBRAS DE LINHA (Enter duas vezes) entre parágrafos e itens para garantir a renderização correta.
-          7. Mantenha o conteúdo fiel ao original, mas organize-o de forma clara.
+          3. Use listas com marcadores (-) para TODOS os termos. Exemplo: - **Termo**: Definição.
+          4. NUNCA use texto corrido ou parágrafos longos sem marcadores.
+          5. IMPORTANTE: Use DUAS QUEBRAS DE LINHA (Enter duas vezes) entre CADA item da lista.
+          6. Mantenha o conteúdo fiel ao original, mas organize-o de forma clara e segmentada.
           
           REGRAS DE RESPOSTA:
           - Retorne APENAS o conteúdo em Markdown.
@@ -2307,7 +2318,7 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
           Texto original:
           "${content.substring(0, 10000)}"`, // Limit content to avoid token limits
         });
-        formattedContent = response.text || content;
+        formattedContent = cleanMarkdown(response.text || content);
       } catch (geminiErr: any) {
         console.error('Erro ao formatar com Gemini:', geminiErr);
         // Fallback to raw content if Gemini fails, but still show the content
@@ -2652,16 +2663,19 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
                 </div>
               ) : (
                 <div className="bg-white p-5 sm:p-8 rounded-2xl sm:rounded-3xl border border-neutral-100 shadow-sm overflow-hidden">
-                  <div className="markdown-body prose prose-neutral max-w-none font-sans text-neutral-700 leading-relaxed break-words">
+                  <div className="markdown-body font-sans text-neutral-700 leading-relaxed break-words">
                     <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
+                      remarkPlugins={[remarkGfm, remarkBreaks]}
                       components={{
                         h1: ({node, ...props}) => <h1 className="text-blue-700 font-bold text-2xl sm:text-3xl mb-6 border-b pb-2 border-blue-100" {...props} />,
                         h2: ({node, ...props}) => <h2 className="text-emerald-700 font-bold text-xl sm:text-2xl mb-4 mt-8" {...props} />,
                         h3: ({node, ...props}) => <h3 className="text-amber-700 font-bold text-lg sm:text-xl mb-3 mt-6" {...props} />,
-                        p: ({node, ...props}) => <p className="mb-4 last:mb-0 text-sm sm:text-base" {...props} />,
-                        ul: ({node, ...props}) => <ul className="list-disc pl-5 sm:pl-6 mb-4 space-y-2 text-sm sm:text-base" {...props} />,
-                        li: ({node, ...props}) => <li className="text-neutral-700" {...props} />,
+                        p: ({node, ...props}) => <p className="mb-6 last:mb-0 text-sm sm:text-base leading-relaxed" {...props} />,
+                        ul: ({node, ...props}) => <ul className="list-disc pl-5 sm:pl-8 mb-6 space-y-4 text-sm sm:text-base" {...props} />,
+                        ol: ({node, ...props}) => <ol className="list-decimal pl-5 sm:pl-8 mb-6 space-y-4 text-sm sm:text-base" {...props} />,
+                        li: ({node, ...props}) => <li className="text-neutral-700 leading-relaxed" {...props} />,
+                        blockquote: ({node, ...props}) => <blockquote className="border-left-4 border-neutral-200 pl-4 italic my-6 text-neutral-600" {...props} />,
+                        code: ({node, ...props}) => <code className="bg-neutral-100 px-1.5 py-0.5 rounded text-sm font-mono" {...props} />,
                         strong: ({node, ...props}) => <strong className="text-neutral-900 font-bold" {...props} />,
                         em: ({node, ...props}) => <em className="text-neutral-600 italic" {...props} />,
                       }}
