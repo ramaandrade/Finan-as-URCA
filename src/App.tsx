@@ -343,6 +343,7 @@ export default function App() {
   };
 
   const startAssessment = async (assessment: Assessment) => {
+    console.log('Iniciando avaliação:', assessment.title);
     setLoading(true);
     setIsGeneratingAssessment(true);
     setError(null);
@@ -2386,7 +2387,7 @@ function AdminPanel({ setView, isLocked, handleToggleLock, handleOpenGlossary }:
   );
 }
 
-function StudentPanel({ user, isAdmin, startAssessment, handleOpenGlossary }: any) {
+function StudentPanel({ user, isAdmin, startAssessment, error, handleOpenGlossary }: any) {
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [userResults, setUserResults] = useState<Result[]>([]);
   const [selectedAssessmentForReview, setSelectedAssessmentForReview] = useState<Assessment | null>(null);
@@ -2586,6 +2587,12 @@ function StudentPanel({ user, isAdmin, startAssessment, handleOpenGlossary }: an
       animate={{ opacity: 1 }}
       className="space-y-8"
     >
+      {error && (
+        <div className="bg-red-50 text-red-600 p-4 rounded-xl flex items-center gap-3 text-sm font-medium border border-red-100">
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          {error}
+        </div>
+      )}
       {localError && (
         <div className="bg-red-50 text-red-600 p-4 rounded-xl flex items-center gap-3 text-sm font-medium border border-red-100">
           <AlertCircle className="w-5 h-5 flex-shrink-0" />
@@ -2841,7 +2848,15 @@ function StudentPanel({ user, isAdmin, startAssessment, handleOpenGlossary }: an
               )}
             </div>
 
-            <div className="p-8 border-t border-neutral-100 bg-neutral-50/50 flex justify-end">
+            <div className="p-8 border-t border-neutral-100 bg-neutral-50/50 flex justify-end gap-4">
+              {selectedAssessmentForReview.glossaryUrl && (
+                <button 
+                  onClick={() => handleOpenGlossary(selectedAssessmentForReview)}
+                  className="bg-blue-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg flex items-center gap-2"
+                >
+                  <Book className="w-4 h-4" /> Glossário
+                </button>
+              )}
               <button 
                 onClick={() => {
                   setSelectedAssessmentForReview(null);
