@@ -2246,13 +2246,29 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
     
     const cleanMarkdown = (text: string) => {
       if (!text) return '';
-      // Ensure double newlines before list items and between paragraphs
-      // This helps rendering on mobile where single newlines might be ignored
-      return text
-        .replace(/\r\n/g, '\n')
-        .replace(/\n(?=- )/g, '\n\n')
-        .replace(/(?<=- .*)\n(?=[^- ])/g, '\n\n')
-        .trim();
+      
+      // 1. Standardize line endings
+      let cleaned = text.replace(/\r\n/g, '\n');
+      
+      // 2. If the text is one big block (no double newlines), it's likely a rendering/extraction issue
+      // We'll try to identify common patterns to break it up
+      if (!cleaned.includes('\n\n')) {
+        cleaned = cleaned
+          .replace(/([.?!])\s+([A-Z])/g, '$1\n\n$2') // Break after sentences
+          .replace(/•/g, '\n\n- ') // Convert bullets to newlines
+          .replace(/([a-z])\s*([A-Z][a-z]+:)/g, '$1\n\n- **$2**') // Identify "Term: Definition" patterns
+          .replace(/(\d+\.)\s+/g, '\n\n$1 ') // Break before numbered lists
+      }
+
+      // 3. Ensure all list items have double newlines before them for mobile rendering
+      cleaned = cleaned
+        .replace(/\n\s*-\s*/g, '\n\n- ')
+        .replace(/\n\s*(\d+)\.\s*/g, '\n\n$1. ');
+
+      // 4. Final cleanup of multiple newlines
+      cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+      
+      return cleaned;
     };
 
     try {
@@ -2261,7 +2277,6 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
         throw new Error('O formato do arquivo do glossário é inválido.');
       }
 
-      // Use fetch to get arrayBuffer from data URL - more efficient than atob
       const dataUrlResponse = await fetch(assessment.glossaryUrl);
       const arrayBuffer = await dataUrlResponse.arrayBuffer();
 
@@ -2275,7 +2290,7 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
           for (let i = 1; i <= pdf.numPages; i++) {
             const page = await pdf.getPage(i);
             const textContent = await page.getTextContent();
-            content += textContent.items.map((item: any) => item.str || '').join(' ') + '\n';
+            content += textContent.items.map((item: any) => item.str || '').join(' ') + '\n\n';
           }
         } catch (pdfErr: any) {
           console.error('Erro ao processar PDF:', pdfErr);
@@ -2294,7 +2309,6 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
         throw new Error('O arquivo do glossário parece estar vazio ou não pôde ser lido.');
       }
 
-      // Use Gemini to format the extracted text as Markdown
       let formattedContent = content;
       try {
         const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -2305,10 +2319,11 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
           REGRAS DE FORMATAÇÃO (ESTRITAMENTE OBRIGATÓRIAS):
           1. Use # para o Título Principal.
           2. Use ## para Categorias ou Seções.
-          3. Use listas com marcadores (-) para TODOS os termos. Exemplo: - **Termo**: Definição.
-          4. NUNCA use texto corrido ou parágrafos longos sem marcadores.
-          5. IMPORTANTE: Use DUAS QUEBRAS DE LINHA (Enter duas vezes) entre CADA item da lista.
-          6. Mantenha o conteúdo fiel ao original, mas organize-o de forma clara e segmentada.
+          3. Use listas com marcadores (-) para TODOS os termos. 
+             Exemplo: - **Termo**: Definição.
+          4. NUNCA use texto corrido ou parágrafos longos. Cada termo deve ser um item de lista separado.
+          5. IMPORTANTE: Use DUAS QUEBRAS DE LINHA (Enter duas vezes) entre CADA item da lista. Isso é vital para o celular.
+          6. Se houver subtópicos, use indentação (dois espaços antes do marcador).
           
           REGRAS DE RESPOSTA:
           - Retorne APENAS o conteúdo em Markdown.
@@ -2316,13 +2331,12 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
           - Comece diretamente com o conteúdo.
           
           Texto original:
-          "${content.substring(0, 10000)}"`, // Limit content to avoid token limits
+          "${content.substring(0, 10000)}"`,
         });
         formattedContent = cleanMarkdown(response.text || content);
       } catch (geminiErr: any) {
         console.error('Erro ao formatar com Gemini:', geminiErr);
-        // Fallback to raw content if Gemini fails, but still show the content
-        formattedContent = content;
+        formattedContent = cleanMarkdown(content);
       }
 
       setGlossaryContent(formattedContent);
@@ -2335,7 +2349,7 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
   };
 
   useEffect(() => {
-    const q = query(collection(db, 'assessments'), where('status', '==', 'Available'));
+    const q = query(collection(db, 'assessments'));
     const unsubscribe = onSnapshot(q, (snap) => {
       setAssessments(snap.docs.map(d => ({ id: d.id, ...d.data() } as Assessment)));
     });
