@@ -2669,9 +2669,19 @@ function StudentPanel({ user, isAdmin, startAssessment, error, handleOpenGlossar
   };
 
   useEffect(() => {
-    const q = query(collection(db, 'assessments'));
+    let q = query(collection(db, 'assessments'));
+    if (!isAdmin) {
+      q = query(collection(db, 'assessments'), where('status', '==', 'Available'));
+    }
     const unsubscribe = onSnapshot(q, (snap) => {
-      setAssessments(snap.docs.map(d => ({ id: d.id, ...d.data() } as Assessment)));
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as Assessment));
+      // Sort in client side to avoid composite index requirement
+      docs.sort((a, b) => {
+        const timeA = a.createdAt?.toMillis?.() || 0;
+        const timeB = b.createdAt?.toMillis?.() || 0;
+        return timeB - timeA;
+      });
+      setAssessments(docs);
     });
 
     const resultsQuery = query(collection(db, 'results'), where('email', '==', user.email));
