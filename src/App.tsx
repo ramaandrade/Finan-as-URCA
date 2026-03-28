@@ -2251,19 +2251,13 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
       // 1. Standardize line endings
       let cleaned = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
       
-      // 2. Force breaks for common separators found in raw text
-      cleaned = cleaned
-        .replace(/•/g, '\n\n- ')
-        .replace(/([a-z0-9])\s*([A-Z][a-zÀ-ÿ]+:)/g, '$1\n\n- **$2**') // Term: Definition
-        .replace(/([.?!])\s+([A-ZÀ-Ÿ])/g, '$1\n\n$2') // End of sentence
-        .replace(/([a-zÀ-ÿ])\n([A-ZÀ-Ÿ])/g, '$1\n\n$2'); // Single newline between sentences
-
-      // 3. Ensure all list items have double newlines before them
+      // 2. Ensure all list items have double newlines before them for better spacing
+      // but don't use aggressive regex that splits words
       cleaned = cleaned
         .replace(/\n\s*-\s*/g, '\n\n- ')
         .replace(/\n\s*(\d+)\.\s*/g, '\n\n$1. ');
 
-      // 4. Final cleanup of multiple newlines
+      // 3. Final cleanup of multiple newlines
       cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
       
       return cleaned;
