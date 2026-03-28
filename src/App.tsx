@@ -185,6 +185,9 @@ export default function App() {
   const [timeLeft, setTimeLeft] = useState(0);
   const [isLocked, setIsLocked] = useState(false);
   const [isInvalidated, setIsInvalidated] = useState(false);
+  const [viewingGlossary, setViewingGlossary] = useState<Assessment | null>(null);
+  const [glossaryContent, setGlossaryContent] = useState<string>('');
+  const [isExtractingGlossary, setIsExtractingGlossary] = useState(false);
 
   // Auth Listener
   useEffect(() => {
@@ -454,6 +457,126 @@ export default function App() {
     }
   };
 
+  const handleOpenGlossary = async (assessment: Assessment) => {
+    if (!assessment.glossaryUrl) return;
+    
+    setViewingGlossary(assessment);
+    setGlossaryContent('');
+    setIsExtractingGlossary(true);
+    
+    const cleanMarkdown = (text: string) => {
+      if (!text) return '';
+      
+      // 1. Standardize line endings
+      let cleaned = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      
+      // 2. Ensure all list items have double newlines before them for better spacing
+      // but don't use aggressive regex that splits words
+      cleaned = cleaned
+        .replace(/\n\s*-\s*/g, '\n\n- ')
+        .replace(/\n\s*(\d+)\.\s*/g, '\n\n$1. ');
+
+      // 3. Final cleanup of multiple newlines
+      cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+      
+      return cleaned;
+    };
+
+    try {
+      let content = '';
+      if (!assessment.glossaryUrl.includes(',')) {
+        throw new Error('O formato do arquivo do glossário é inválido.');
+      }
+
+      const dataUrlResponse = await fetch(assessment.glossaryUrl);
+      const arrayBuffer = await dataUrlResponse.arrayBuffer();
+
+      if (assessment.glossaryUrl.includes('application/pdf')) {
+        try {
+          if (!pdfjsLib || !pdfjsLib.getDocument) {
+            throw new Error('A biblioteca de processamento de PDF não está disponível.');
+          }
+          const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+          const pdf = await loadingTask.promise;
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            content += textContent.items.map((item: any) => item.str || '').join(' ') + '\n\n';
+          }
+        } catch (pdfErr: any) {
+          console.error('Erro ao processar PDF:', pdfErr);
+          throw new Error(`Erro ao processar PDF: ${pdfErr.message || 'Erro desconhecido'}`);
+        }
+      } else {
+        try {
+          // Try UTF-8 first, if it fails (fatal: true), try ISO-8859-1 (common for Portuguese)
+          try {
+            content = new TextDecoder('utf-8', { fatal: true }).decode(arrayBuffer);
+          } catch (e) {
+            content = new TextDecoder('iso-8859-1').decode(arrayBuffer);
+          }
+        } catch (decodeErr: any) {
+          console.error('Erro ao decodificar texto:', decodeErr);
+          throw new Error('Não foi possível decodificar o arquivo de texto.');
+        }
+      }
+
+      if (!content.trim()) {
+        throw new Error('O arquivo do glossário parece estar vazio ou não pôde ser lido.');
+      }
+
+      let formattedContent = content;
+      try {
+        const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const response = await genAI.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: `Transforme o seguinte texto bruto em um glossário formatado em Markdown elegante e profissional, OTIMIZADO PARA CELULAR.
+          
+          REGRAS DE FORMATAÇÃO (ESTRITAMENTE OBRIGATÓRIAS):
+          1. Use # para o Título Principal (apenas um).
+          2. Use ## para Categorias ou Seções Principais.
+          3. Use listas com marcadores (-) para TODOS os termos. 
+             Exemplo: - **Termo**: Definição clara e concisa.
+          4. NUNCA use tabelas (difícil de ler no celular).
+          5. NUNCA use parágrafos longos. Se uma definição for longa, quebre-a em itens de lista menores.
+          6. IMPORTANTE: Use DUAS QUEBRAS DE LINHA (Enter duas vezes) entre CADA item da lista. Isso cria um "espaço de respiro" essencial para a leitura em telas pequenas.
+          7. Destaque termos importantes em **negrito**.
+          8. Mantenha a linguagem simples e direta.
+          
+          REGRAS DE RESPOSTA:
+          - Retorne APENAS o conteúdo em Markdown.
+          - NÃO inclua textos introdutórios ou conclusivos.
+          - Comece diretamente com o conteúdo.
+          
+          Texto original:
+          "${content.substring(0, 10000)}"`,
+        });
+        formattedContent = cleanMarkdown(response.text || content);
+      } catch (geminiErr: any) {
+        console.error('Erro ao formatar com Gemini:', geminiErr);
+        formattedContent = cleanMarkdown(content);
+      }
+
+      setGlossaryContent(formattedContent);
+    } catch (err: any) {
+      console.error('Erro ao carregar glossário:', err);
+      setGlossaryContent(`Não foi possível carregar o conteúdo do glossário: ${err.message}`);
+    } finally {
+      setIsExtractingGlossary(false);
+    }
+  };
+
+  const openOriginalFile = async (url: string) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank');
+    } catch (err) {
+      console.error('Erro ao abrir arquivo original:', err);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-neutral-50 flex flex-col items-center justify-center p-6 text-center">
@@ -551,8 +674,8 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 no-print">
         <AnimatePresence mode="wait">
           {view === 'home' && <HomeView user={user} isAdmin={isAdmin} setView={setView} handleLogin={handleLogin} error={error} isLocked={isLocked} handleToggleLock={handleToggleLock} />}
-          {view === 'admin' && isAdmin && <AdminPanel setView={setView} isLocked={isLocked} handleToggleLock={handleToggleLock} />}
-          {view === 'student' && user && <StudentPanel user={user} isAdmin={isAdmin} startAssessment={startAssessment} error={error} />}
+          {view === 'admin' && isAdmin && <AdminPanel setView={setView} isLocked={isLocked} handleToggleLock={handleToggleLock} handleOpenGlossary={handleOpenGlossary} />}
+          {view === 'student' && user && <StudentPanel user={user} isAdmin={isAdmin} startAssessment={startAssessment} error={error} handleOpenGlossary={handleOpenGlossary} />}
           {view === 'test' && (
             <TestView 
               questions={questions} 
@@ -568,6 +691,107 @@ export default function App() {
           {view === 'result' && testResult && <ResultView result={testResult} setView={setView} />}
         </AnimatePresence>
       </main>
+
+      {/* Shared Glossary Modal */}
+      {viewingGlossary && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
+          >
+            <div className="p-8 border-b border-neutral-100 flex items-center justify-between bg-white sticky top-0 z-10">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-blue-100 rounded-2xl flex items-center justify-center">
+                  <Book className="w-6 h-6 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold text-neutral-900">Glossário: {viewingGlossary.title}</h3>
+                  <p className="text-sm text-neutral-500">Conteúdo de apoio para estudo</p>
+                  <p className="text-[10px] text-amber-600 font-medium mt-1 sm:hidden">Dica: Se o texto estiver misturado, desative o Google Tradutor.</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {viewingGlossary.glossaryUrl && viewingGlossary.glossaryUrl.includes('application/pdf') && (
+                  <button 
+                    onClick={() => openOriginalFile(viewingGlossary.glossaryUrl!)}
+                    className="hidden sm:flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl font-bold text-sm transition-all"
+                  >
+                    <ExternalLink className="w-4 h-4" /> Ver PDF Original
+                  </button>
+                )}
+                <button 
+                  onClick={() => handleOpenGlossary(viewingGlossary)}
+                  className="p-3 hover:bg-blue-50 text-neutral-400 hover:text-blue-600 rounded-2xl transition-all"
+                  title="Recarregar conteúdo"
+                >
+                  <RefreshCw className={`w-5 h-5 ${isExtractingGlossary ? 'animate-spin' : ''}`} />
+                </button>
+                <button 
+                  onClick={() => setViewingGlossary(null)}
+                  className="p-3 hover:bg-neutral-100 rounded-2xl transition-all"
+                >
+                  <X className="w-6 h-6 text-neutral-400" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-neutral-50/30">
+              {isExtractingGlossary ? (
+                <div className="flex flex-col items-center justify-center py-20 space-y-4">
+                  <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+                  <p className="text-neutral-500 font-medium text-center px-4">Carregando e formatando conteúdo do glossário...</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {viewingGlossary.glossaryUrl && viewingGlossary.glossaryUrl.includes('application/pdf') && (
+                    <button 
+                      onClick={() => openOriginalFile(viewingGlossary.glossaryUrl!)}
+                      className="sm:hidden w-full flex items-center justify-center gap-2 px-4 py-4 bg-blue-600 text-white rounded-2xl font-bold text-sm shadow-lg active:scale-95 transition-all"
+                    >
+                      <ExternalLink className="w-5 h-5" /> Abrir PDF Original
+                    </button>
+                  )}
+                  
+                  <div className="bg-white p-5 sm:p-8 rounded-2xl sm:rounded-3xl border border-neutral-100 shadow-sm overflow-hidden">
+                    <div className="markdown-body font-sans text-neutral-700 leading-relaxed break-words" translate="no">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm, remarkBreaks]}
+                        components={{
+                          h1: ({node, ...props}) => <h1 className="text-blue-700 font-bold text-xl sm:text-3xl mb-6 border-b pb-2 border-blue-100 uppercase tracking-tight" {...props} />,
+                          h2: ({node, ...props}) => <h2 className="text-emerald-700 font-bold text-lg sm:text-2xl mb-4 mt-8 border-l-4 border-emerald-500 pl-3" {...props} />,
+                          h3: ({node, ...props}) => <h3 className="text-amber-700 font-bold text-base sm:text-xl mb-3 mt-6" {...props} />,
+                          p: ({node, ...props}) => <p className="mb-4 last:mb-0 text-sm sm:text-base leading-relaxed text-neutral-600" {...props} />,
+                          ul: ({node, ...props}) => <ul className="list-none pl-0 mb-6 space-y-6" {...props} />,
+                          ol: ({node, ...props}) => <ol className="list-decimal pl-5 sm:pl-8 mb-6 space-y-6" {...props} />,
+                          li: ({node, ...props}) => (
+                            <li className="text-neutral-700 leading-relaxed bg-neutral-50/50 p-4 rounded-2xl border border-neutral-100/50 shadow-sm" {...props} />
+                          ),
+                          blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-blue-200 pl-4 italic my-6 text-neutral-500 bg-blue-50/30 py-2 rounded-r-lg" {...props} />,
+                          code: ({node, ...props}) => <code className="bg-neutral-100 px-1.5 py-0.5 rounded text-xs font-mono text-blue-600" {...props} />,
+                          strong: ({node, ...props}) => <strong className="text-neutral-900 font-bold border-b-2 border-blue-100" {...props} />,
+                          em: ({node, ...props}) => <em className="text-neutral-500 italic" {...props} />,
+                        }}
+                      >
+                        {glossaryContent || 'Nenhum conteúdo encontrado no glossário.'}
+                      </ReactMarkdown>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-8 border-t border-neutral-100 bg-white flex justify-end">
+              <button 
+                onClick={() => setViewingGlossary(null)}
+                className="bg-neutral-900 text-white px-10 py-4 rounded-2xl font-bold hover:bg-neutral-800 transition-all shadow-lg hover:shadow-neutral-200"
+              >
+                Fechar Glossário
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
@@ -708,7 +932,7 @@ function HomeView({ user, isAdmin, setView, handleLogin, error, isLocked, handle
   );
 }
 
-function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
+function AdminPanel({ setView, isLocked, handleToggleLock, handleOpenGlossary }: any) {
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [showStudents, setShowStudents] = useState(false);
@@ -1972,17 +2196,25 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
 
                   <div className="space-y-3">
                     {selectedAssessmentForReview.glossaryUrl ? (
-                      <div className="flex items-center justify-between bg-white p-4 rounded-xl border border-neutral-200">
-                        <span className="text-sm font-medium text-neutral-700 truncate">{selectedAssessmentForReview.glossaryName}</span>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between bg-white p-4 rounded-xl border border-neutral-200">
+                          <span className="text-sm font-medium text-neutral-700 truncate">{selectedAssessmentForReview.glossaryName}</span>
+                          <button 
+                            onClick={async () => {
+                              const updated = { ...selectedAssessmentForReview, glossaryUrl: '', glossaryName: '' };
+                              await updateDoc(doc(db, 'assessments', selectedAssessmentForReview.id), { glossaryUrl: '', glossaryName: '' });
+                              setSelectedAssessmentForReview(updated);
+                            }}
+                            className="text-red-400 hover:text-red-600 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                         <button 
-                          onClick={async () => {
-                            const updated = { ...selectedAssessmentForReview, glossaryUrl: '', glossaryName: '' };
-                            await updateDoc(doc(db, 'assessments', selectedAssessmentForReview.id), { glossaryUrl: '', glossaryName: '' });
-                            setSelectedAssessmentForReview(updated);
-                          }}
-                          className="text-red-400 hover:text-red-600 transition-colors"
+                          onClick={() => handleOpenGlossary(selectedAssessmentForReview)}
+                          className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-all shadow-md flex items-center justify-center gap-2"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Eye className="w-4 h-4" /> Visualizar Glossário Formatado
                         </button>
                       </div>
                     ) : (
@@ -2145,7 +2377,7 @@ function AdminPanel({ setView, isLocked, handleToggleLock }: any) {
   );
 }
 
-function StudentPanel({ user, isAdmin, startAssessment }: any) {
+function StudentPanel({ user, isAdmin, startAssessment, handleOpenGlossary }: any) {
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [userResults, setUserResults] = useState<Result[]>([]);
   const [selectedAssessmentForReview, setSelectedAssessmentForReview] = useState<Assessment | null>(null);
@@ -2153,9 +2385,6 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
   const [isGeneratingPractice, setIsGeneratingPractice] = useState(false);
   const [studentPracticeAnswers, setStudentPracticeAnswers] = useState<string[]>([]);
   const [showPracticeResult, setShowPracticeResult] = useState(false);
-  const [viewingGlossary, setViewingGlossary] = useState<Assessment | null>(null);
-  const [glossaryContent, setGlossaryContent] = useState<string>('');
-  const [isExtractingGlossary, setIsExtractingGlossary] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
   const TEMA_1_EXERCISE = {
@@ -2322,127 +2551,6 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
 
     if (assessment.exerciseUrl) {
       generatePractice(assessment);
-    }
-  };
-
-  const openOriginalFile = async (url: string) => {
-    try {
-      const response = await fetch(url);
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      window.open(blobUrl, '_blank');
-    } catch (err) {
-      console.error('Erro ao abrir arquivo original:', err);
-      window.open(url, '_blank');
-    }
-  };
-
-  const handleOpenGlossary = async (assessment: Assessment) => {
-    if (!assessment.glossaryUrl) return;
-    
-    setViewingGlossary(assessment);
-    setGlossaryContent('');
-    setIsExtractingGlossary(true);
-    
-    const cleanMarkdown = (text: string) => {
-      if (!text) return '';
-      
-      // 1. Standardize line endings
-      let cleaned = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-      
-      // 2. Ensure all list items have double newlines before them for better spacing
-      // but don't use aggressive regex that splits words
-      cleaned = cleaned
-        .replace(/\n\s*-\s*/g, '\n\n- ')
-        .replace(/\n\s*(\d+)\.\s*/g, '\n\n$1. ');
-
-      // 3. Final cleanup of multiple newlines
-      cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
-      
-      return cleaned;
-    };
-
-    try {
-      let content = '';
-      if (!assessment.glossaryUrl.includes(',')) {
-        throw new Error('O formato do arquivo do glossário é inválido.');
-      }
-
-      const dataUrlResponse = await fetch(assessment.glossaryUrl);
-      const arrayBuffer = await dataUrlResponse.arrayBuffer();
-
-      if (assessment.glossaryUrl.includes('application/pdf')) {
-        try {
-          if (!pdfjsLib || !pdfjsLib.getDocument) {
-            throw new Error('A biblioteca de processamento de PDF não está disponível.');
-          }
-          const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-          const pdf = await loadingTask.promise;
-          for (let i = 1; i <= pdf.numPages; i++) {
-            const page = await pdf.getPage(i);
-            const textContent = await page.getTextContent();
-            content += textContent.items.map((item: any) => item.str || '').join(' ') + '\n\n';
-          }
-        } catch (pdfErr: any) {
-          console.error('Erro ao processar PDF:', pdfErr);
-          throw new Error(`Erro ao processar PDF: ${pdfErr.message || 'Erro desconhecido'}`);
-        }
-      } else {
-        try {
-          // Try UTF-8 first, if it fails (fatal: true), try ISO-8859-1 (common for Portuguese)
-          try {
-            content = new TextDecoder('utf-8', { fatal: true }).decode(arrayBuffer);
-          } catch (e) {
-            content = new TextDecoder('iso-8859-1').decode(arrayBuffer);
-          }
-        } catch (decodeErr: any) {
-          console.error('Erro ao decodificar texto:', decodeErr);
-          throw new Error('Não foi possível decodificar o arquivo de texto.');
-        }
-      }
-
-      if (!content.trim()) {
-        throw new Error('O arquivo do glossário parece estar vazio ou não pôde ser lido.');
-      }
-
-      let formattedContent = content;
-      try {
-        const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-        const response = await genAI.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: `Transforme o seguinte texto bruto em um glossário formatado em Markdown elegante e profissional, OTIMIZADO PARA CELULAR.
-          
-          REGRAS DE FORMATAÇÃO (ESTRITAMENTE OBRIGATÓRIAS):
-          1. Use # para o Título Principal (apenas um).
-          2. Use ## para Categorias ou Seções Principais.
-          3. Use listas com marcadores (-) para TODOS os termos. 
-             Exemplo: - **Termo**: Definição clara e concisa.
-          4. NUNCA use tabelas (difícil de ler no celular).
-          5. NUNCA use parágrafos longos. Se uma definição for longa, quebre-a em itens de lista menores.
-          6. IMPORTANTE: Use DUAS QUEBRAS DE LINHA (Enter duas vezes) entre CADA item da lista. Isso cria um "espaço de respiro" essencial para a leitura em telas pequenas.
-          7. Destaque termos importantes em **negrito**.
-          8. Mantenha a linguagem simples e direta.
-          
-          REGRAS DE RESPOSTA:
-          - Retorne APENAS o conteúdo em Markdown.
-          - NÃO inclua textos introdutórios ou conclusivos.
-          - Comece diretamente com o conteúdo.
-          
-          Texto original:
-          "${content.substring(0, 10000)}"`,
-        });
-        formattedContent = cleanMarkdown(response.text || content);
-      } catch (geminiErr: any) {
-        console.error('Erro ao formatar com Gemini:', geminiErr);
-        formattedContent = cleanMarkdown(content);
-      }
-
-      setGlossaryContent(formattedContent);
-    } catch (err: any) {
-      console.error('Erro ao carregar glossário:', err);
-      setGlossaryContent(`Não foi possível carregar o conteúdo do glossário: ${err.message}`);
-    } finally {
-      setIsExtractingGlossary(false);
     }
   };
 
@@ -2741,106 +2849,6 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
         </div>
       )}
 
-      {/* Glossary Modal */}
-      {viewingGlossary && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
-          <motion.div 
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
-          >
-            <div className="p-8 border-b border-neutral-100 flex items-center justify-between bg-white sticky top-0 z-10">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-blue-100 rounded-2xl flex items-center justify-center">
-                  <Book className="w-6 h-6 text-blue-600" />
-                </div>
-                <div>
-                  <h3 className="text-2xl font-bold text-neutral-900">Glossário: {viewingGlossary.title}</h3>
-                  <p className="text-sm text-neutral-500">Conteúdo de apoio para estudo</p>
-                  <p className="text-[10px] text-amber-600 font-medium mt-1 sm:hidden">Dica: Se o texto estiver misturado, desative o Google Tradutor.</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {viewingGlossary.glossaryUrl.includes('application/pdf') && (
-                  <button 
-                    onClick={() => openOriginalFile(viewingGlossary.glossaryUrl)}
-                    className="hidden sm:flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl font-bold text-sm transition-all"
-                  >
-                    <ExternalLink className="w-4 h-4" /> Ver PDF Original
-                  </button>
-                )}
-                <button 
-                  onClick={() => handleOpenGlossary(viewingGlossary)}
-                  className="p-3 hover:bg-blue-50 text-neutral-400 hover:text-blue-600 rounded-2xl transition-all"
-                  title="Recarregar conteúdo"
-                >
-                  <RefreshCw className={`w-5 h-5 ${isExtractingGlossary ? 'animate-spin' : ''}`} />
-                </button>
-                <button 
-                  onClick={() => setViewingGlossary(null)}
-                  className="p-3 hover:bg-neutral-100 rounded-2xl transition-all"
-                >
-                  <X className="w-6 h-6 text-neutral-400" />
-                </button>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-neutral-50/30">
-              {isExtractingGlossary ? (
-                <div className="flex flex-col items-center justify-center py-20 space-y-4">
-                  <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
-                  <p className="text-neutral-500 font-medium text-center px-4">Carregando e formatando conteúdo do glossário...</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {viewingGlossary.glossaryUrl.includes('application/pdf') && (
-                    <button 
-                      onClick={() => openOriginalFile(viewingGlossary.glossaryUrl)}
-                      className="sm:hidden w-full flex items-center justify-center gap-2 px-4 py-4 bg-blue-600 text-white rounded-2xl font-bold text-sm shadow-lg active:scale-95 transition-all"
-                    >
-                      <ExternalLink className="w-5 h-5" /> Abrir PDF Original
-                    </button>
-                  )}
-                  
-                  <div className="bg-white p-5 sm:p-8 rounded-2xl sm:rounded-3xl border border-neutral-100 shadow-sm overflow-hidden">
-                    <div className="markdown-body font-sans text-neutral-700 leading-relaxed break-words" translate="no">
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm, remarkBreaks]}
-                        components={{
-                          h1: ({node, ...props}) => <h1 className="text-blue-700 font-bold text-xl sm:text-3xl mb-6 border-b pb-2 border-blue-100 uppercase tracking-tight" {...props} />,
-                          h2: ({node, ...props}) => <h2 className="text-emerald-700 font-bold text-lg sm:text-2xl mb-4 mt-8 border-l-4 border-emerald-500 pl-3" {...props} />,
-                          h3: ({node, ...props}) => <h3 className="text-amber-700 font-bold text-base sm:text-xl mb-3 mt-6" {...props} />,
-                          p: ({node, ...props}) => <p className="mb-4 last:mb-0 text-sm sm:text-base leading-relaxed text-neutral-600" {...props} />,
-                          ul: ({node, ...props}) => <ul className="list-none pl-0 mb-6 space-y-6" {...props} />,
-                          ol: ({node, ...props}) => <ol className="list-decimal pl-5 sm:pl-8 mb-6 space-y-6" {...props} />,
-                          li: ({node, ...props}) => (
-                            <li className="text-neutral-700 leading-relaxed bg-neutral-50/50 p-4 rounded-2xl border border-neutral-100/50 shadow-sm" {...props} />
-                          ),
-                          blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-blue-200 pl-4 italic my-6 text-neutral-500 bg-blue-50/30 py-2 rounded-r-lg" {...props} />,
-                          code: ({node, ...props}) => <code className="bg-neutral-100 px-1.5 py-0.5 rounded text-xs font-mono text-blue-600" {...props} />,
-                          strong: ({node, ...props}) => <strong className="text-neutral-900 font-bold border-b-2 border-blue-100" {...props} />,
-                          em: ({node, ...props}) => <em className="text-neutral-500 italic" {...props} />,
-                        }}
-                      >
-                        {glossaryContent || 'Nenhum conteúdo encontrado no glossário.'}
-                      </ReactMarkdown>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="p-8 border-t border-neutral-100 bg-white flex justify-end">
-              <button 
-                onClick={() => setViewingGlossary(null)}
-                className="bg-neutral-900 text-white px-10 py-4 rounded-2xl font-bold hover:bg-neutral-800 transition-all shadow-lg hover:shadow-neutral-200"
-              >
-                Fechar Glossário
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
     </motion.div>
   );
 }
