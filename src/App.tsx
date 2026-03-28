@@ -171,59 +171,59 @@ const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 const TEMA_1_QUESTIONS = [
   {
-    question: "O que são finanças em termos simples?",
+    question: "A empresa 'Sertão Têxtil' possui uma estrutura onde os gestores detêm informações privilegiadas que não são compartilhadas integralmente com os acionistas minoritários. Recentemente, os gestores aprovaram bônus vultosos para si mesmos, apesar de uma queda no lucro líquido. À luz da Governança Corporativa, qual mecanismo seria mais eficaz para mitigar esse 'conflito de agência'?",
     options: [
-      "A gestão de recursos humanos em uma organização.",
-      "A gestão do dinheiro, envolvendo decisões sobre como obter, alocar e utilizar recursos financeiros.",
-      "O estudo das leis que regem o comércio internacional.",
-      "A análise de mercado para lançamento de novos produtos."
+      "Aumento da alavancagem financeira para pressionar o fluxo de caixa e reduzir o desperdício.",
+      "Implementação de transparência radical (disclosure) e fortalecimento do Conselho de Administração com membros independentes.",
+      "Redução do capital social para devolver recursos aos acionistas e extinguir a empresa.",
+      "Substituição imediata de todos os ativos fixos por ativos circulantes para aumentar a liquidez."
     ],
     correctIndex: 1,
-    explanation: "Em termos simples, finanças é a gestão do dinheiro. Ela envolve decisões sobre como obter, alocar e utilizar recursos financeiros em empresas, governos ou para indivíduos."
+    explanation: "A transparência (disclosure) reduz a assimetria de informação, enquanto conselheiros independentes garantem que as decisões dos gestores alinhem-se aos interesses dos acionistas, combatendo o problema de agência."
   },
   {
-    question: "Qual é a definição de conformidade (compliance) no contexto empresarial?",
+    question: "Após um escândalo de manipulação de balanços em uma multinacional, a diretoria financeira alega que 'não sabia' das irregularidades cometidas por subordinados. No contexto da Lei Sarbanes-Oxley (SOX), por que essa alegação não exime o CEO e o CFO de responsabilidade criminal e civil?",
     options: [
-      "O ato de seguir regras, leis, regulamentos e padrões estabelecidos por órgãos reguladores.",
-      "A estratégia de marketing para superar a concorrência.",
-      "O processo de contratação de novos funcionários.",
-      "A análise de riscos puramente financeiros."
+      "Porque a SOX exige que os executivos assinem pessoalmente os relatórios, atestando a veracidade dos dados e a eficácia dos controles internos.",
+      "Porque a SOX extinguiu o cargo de auditor externo, tornando os executivos os únicos responsáveis legais.",
+      "Porque a lei permite que executivos sejam penalizados apenas por 'má sorte' nos resultados operacionais.",
+      "Porque a conformidade (compliance) é uma regra opcional que os executivos escolheram ignorar."
     ],
     correctIndex: 0,
-    explanation: "Conformidade se refere ao ato de seguir regras, leis, regulamentos e padrões estabelecidos por órgãos reguladores, governos ou organizações."
+    explanation: "A SOX (Seções 302 e 404) obriga que CEO e CFO certifiquem os relatórios financeiros e a eficácia dos controles internos, impedindo a alegação de ignorância sobre fraudes."
   },
   {
-    question: "Qual é o principal objetivo da Lei Sarbanes-Oxley (SOX)?",
+    question: "Uma fintech de crédito percebeu um erro em seu algoritmo que cobrou taxas 0,5% acima do contratado de milhares de clientes. O custo para estornar os valores é superior ao lucro do trimestre. Seguindo os princípios de Ética Empresarial e responsabilidade com stakeholders, qual deve ser a postura da organização?",
     options: [
-      "Reduzir impostos para grandes corporações.",
-      "Aumentar a produtividade dos funcionários.",
-      "Eliminar problemas de divulgação e conflitos de interesses, garantindo transparência e responsabilidade.",
-      "Facilitar a fusão entre empresas de diferentes países."
+      "Ignorar o erro, pois o valor individual é pequeno e a empresa precisa garantir seu lucro para sobreviver.",
+      "Comunicar o erro apenas se for questionada formalmente por órgãos reguladores ou pela justiça.",
+      "Agir com transparência, comunicar o erro proativamente aos clientes e realizar o estorno, priorizando a integridade e a sustentabilidade da marca.",
+      "Alterar os contratos retroativamente para legalizar a cobrança indevida e evitar o prejuízo financeiro."
     ],
     correctIndex: 2,
-    explanation: "O principal objetivo da Lei Sarbanes-Oxley (SOX) é eliminar problemas de divulgação e conflitos de interesses, estabelecendo controles e regulamentações mais rígidos."
+    explanation: "A ética empresarial exige transparência e justiça nas relações. Priorizar o lucro imediato em detrimento da honestidade destrói o valor da marca e a confiança dos stakeholders a longo prazo."
   },
   {
-    question: "O que a governança corporativa representa em uma organização?",
+    question: "Um empreendedor deseja abrir uma fábrica de calçados. Ele possui R$ 500.000,00 (Patrimônio Líquido) e pretende adquirir máquinas de R$ 800.000,00 (Ativos), financiando o restante via banco (Passivo). Ao analisar a viabilidade financeira, qual raciocínio é fundamental para o sucesso do negócio?",
     options: [
-      "O departamento responsável pela limpeza e manutenção.",
-      "O conjunto de práticas, processos e estruturas que direcionam e controlam uma organização.",
-      "A equipe de vendas externa da empresa.",
-      "O software utilizado para controle de estoque."
+      "O Passivo não gera obrigações financeiras futuras, sendo considerado 'capital de giro gratuito'.",
+      "Os Ativos adquiridos devem gerar um retorno operacional (lucro) superior ao custo do Passivo (juros) para agregar valor ao negócio.",
+      "O Patrimônio Líquido deve ser mantido em zero para que o risco seja totalmente transferido para o banco.",
+      "A gestão financeira deve focar exclusivamente na Receita Bruta, desconsiderando o fluxo de caixa e as despesas operacionais."
     ],
     correctIndex: 1,
-    explanation: "A governança corporativa representa o conjunto de práticas, processos e estruturas que direcionam e controlam uma organização, definindo as regras para a tomada de decisões."
+    explanation: "Em finanças, a criação de valor ocorre quando o retorno sobre o capital investido (nos ativos) supera o custo médio ponderado de capital (dívidas e capital próprio)."
   },
   {
-    question: "Como a transparência na governança corporativa ajuda a mitigar problemas de agência?",
+    question: "Um gestor público está sendo pressionado a priorizar investimentos em obras de fachada em detrimento da manutenção de hospitais. Considerando a distinção entre Gestão Pública e Privada, qual deve ser o norteador da decisão deste gestor?",
     options: [
-      "Aumentando os salários dos administradores.",
-      "Reduzindo a assimetria de informação entre acionistas e administradores.",
-      "Contratando mais auditores externos.",
-      "Eliminando a necessidade de reuniões de conselho."
+      "A maximização do lucro líquido para os 'acionistas' (eleitores) da prefeitura.",
+      "O foco exclusivo na conformidade legal estrita, ignorando o impacto social da decisão.",
+      "O princípio do bem comum e a eficiência na prestação de serviços essenciais, visando o impacto social e a qualidade de vida da sociedade.",
+      "A redução drástica de todos os ativos públicos para evitar custos de manutenção e depreciação."
     ],
-    correctIndex: 1,
-    explanation: "Ao exigir a divulgação clara e precisa de informações, a transparência na governança corporativa reduz a assimetria de informação entre acionistas e administradores."
+    correctIndex: 2,
+    explanation: "Diferente da gestão privada (focada no lucro), a gestão pública tem como objetivo final o bem-estar social e a prestação eficiente de serviços à coletividade."
   }
 ];
 
@@ -430,8 +430,15 @@ export default function App() {
   const startAssessment = async (assessment: Assessment) => {
     console.log('Iniciando avaliação:', assessment.title);
     
+    const titleLower = assessment.title.toLowerCase();
+    const isTema1 = titleLower.includes('tema 1') || 
+                    titleLower.includes('tema 01') || 
+                    titleLower.includes('avaliação 1') || 
+                    titleLower.includes('avaliacao 1') ||
+                    titleLower.includes('avaliação do tema 1');
+
     // Bypassing AI for Tema 1 to ensure it works even when quota is hit
-    if (assessment.title.toLowerCase().includes('tema 1')) {
+    if (isTema1) {
       setQuestions(TEMA_1_QUESTIONS);
       setCurrentAssessment(assessment);
       setCurrentQuestionIndex(0);
@@ -440,6 +447,7 @@ export default function App() {
       setView('test');
       setLoading(false);
       setIsGeneratingAssessment(false);
+      setError(null);
       return;
     }
 
@@ -503,7 +511,24 @@ export default function App() {
       setView('test');
     } catch (err: any) {
       console.error('Erro ao gerar a prova:', err);
-      setError('Erro ao gerar a prova com IA. Por favor, tente novamente.');
+      
+      const titleLower = assessment.title.toLowerCase();
+      const isTema1 = titleLower.includes('tema 1') || 
+                      titleLower.includes('tema 01') || 
+                      titleLower.includes('avaliação 1') || 
+                      titleLower.includes('avaliacao 1');
+
+      if (isTema1) {
+        setQuestions(TEMA_1_QUESTIONS);
+        setCurrentAssessment(assessment);
+        setCurrentQuestionIndex(0);
+        setStudentAnswers(new Array(TEMA_1_QUESTIONS.length).fill(-1));
+        setTimeLeft(assessment.timeLimit * 60);
+        setView('test');
+        setError(null);
+      } else {
+        setError('Erro ao gerar a prova com IA. Por favor, tente novamente ou contate o suporte.');
+      }
     } finally {
       setLoading(false);
       setIsGeneratingAssessment(false);
@@ -2499,8 +2524,15 @@ function StudentPanel({ user, isAdmin, startAssessment, error, handleOpenGlossar
   const generatePractice = async (assessment: Assessment) => {
     if (!assessment.exerciseUrl) return;
     
+    const titleLower = assessment.title.toLowerCase();
+    const isTema1 = titleLower.includes('tema 1') || 
+                    titleLower.includes('tema 01') || 
+                    titleLower.includes('avaliação 1') || 
+                    titleLower.includes('avaliacao 1') ||
+                    assessment.exerciseName?.toLowerCase().includes('exercício 1');
+
     // If it's Tema 1, use the static data
-    if (assessment.title.toLowerCase().includes('tema 1') || assessment.exerciseName?.toLowerCase().includes('exercício 1')) {
+    if (isTema1) {
       setGeneratedPracticeExercise(TEMA_1_EXERCISE);
       setStudentPracticeAnswers(new Array(TEMA_1_EXERCISE.columnB.length).fill(''));
       return;
@@ -2660,9 +2692,26 @@ function StudentPanel({ user, isAdmin, startAssessment, error, handleOpenGlossar
       className="space-y-8"
     >
       {error && (
-        <div className="bg-red-50 text-red-600 p-4 rounded-xl flex items-center gap-3 text-sm font-medium border border-red-100">
-          <AlertCircle className="w-5 h-5 flex-shrink-0" />
-          {error}
+        <div className="bg-red-50 text-red-600 p-4 rounded-xl flex flex-col gap-3 text-sm font-medium border border-red-100">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            {error}
+          </div>
+          {error.includes('IA') && (
+            <button 
+              onClick={() => {
+                const tema1 = assessments.find(a => 
+                  a.title.toLowerCase().includes('tema 1') || 
+                  a.title.toLowerCase().includes('tema 01') ||
+                  a.title.toLowerCase().includes('avaliação 1')
+                );
+                if (tema1) startAssessment(tema1);
+              }}
+              className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs hover:bg-red-700 transition-colors self-start"
+            >
+              Forçar Início Tema 1 (Sem IA)
+            </button>
+          )}
         </div>
       )}
       {localError && (
