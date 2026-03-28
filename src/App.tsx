@@ -33,7 +33,8 @@ import {
   Upload,
   Award,
   Settings,
-  RefreshCw
+  RefreshCw,
+  ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
@@ -2238,6 +2239,18 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
     }
   };
 
+  const openOriginalFile = async (url: string) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank');
+    } catch (err) {
+      console.error('Erro ao abrir arquivo original:', err);
+      window.open(url, '_blank');
+    }
+  };
+
   const handleOpenGlossary = async (assessment: Assessment) => {
     if (!assessment.glossaryUrl) return;
     
@@ -2655,6 +2668,14 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                {viewingGlossary.glossaryUrl.includes('application/pdf') && (
+                  <button 
+                    onClick={() => openOriginalFile(viewingGlossary.glossaryUrl)}
+                    className="hidden sm:flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl font-bold text-sm transition-all"
+                  >
+                    <ExternalLink className="w-4 h-4" /> Ver PDF Original
+                  </button>
+                )}
                 <button 
                   onClick={() => handleOpenGlossary(viewingGlossary)}
                   className="p-3 hover:bg-blue-50 text-neutral-400 hover:text-blue-600 rounded-2xl transition-all"
@@ -2678,26 +2699,37 @@ function StudentPanel({ user, isAdmin, startAssessment }: any) {
                   <p className="text-neutral-500 font-medium text-center px-4">Carregando e formatando conteúdo do glossário...</p>
                 </div>
               ) : (
-                <div className="bg-white p-5 sm:p-8 rounded-2xl sm:rounded-3xl border border-neutral-100 shadow-sm overflow-hidden">
-                  <div className="markdown-body font-sans text-neutral-700 leading-relaxed break-words" translate="no">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm, remarkBreaks]}
-                      components={{
-                        h1: ({node, ...props}) => <h1 className="text-blue-700 font-bold text-2xl sm:text-3xl mb-6 border-b pb-2 border-blue-100" {...props} />,
-                        h2: ({node, ...props}) => <h2 className="text-emerald-700 font-bold text-xl sm:text-2xl mb-4 mt-8" {...props} />,
-                        h3: ({node, ...props}) => <h3 className="text-amber-700 font-bold text-lg sm:text-xl mb-3 mt-6" {...props} />,
-                        p: ({node, ...props}) => <p className="mb-6 last:mb-0 text-sm sm:text-base leading-relaxed" {...props} />,
-                        ul: ({node, ...props}) => <ul className="list-disc pl-5 sm:pl-8 mb-6 space-y-4 text-sm sm:text-base" {...props} />,
-                        ol: ({node, ...props}) => <ol className="list-decimal pl-5 sm:pl-8 mb-6 space-y-4 text-sm sm:text-base" {...props} />,
-                        li: ({node, ...props}) => <li className="text-neutral-700 leading-relaxed" {...props} />,
-                        blockquote: ({node, ...props}) => <blockquote className="border-left-4 border-neutral-200 pl-4 italic my-6 text-neutral-600" {...props} />,
-                        code: ({node, ...props}) => <code className="bg-neutral-100 px-1.5 py-0.5 rounded text-sm font-mono" {...props} />,
-                        strong: ({node, ...props}) => <strong className="text-neutral-900 font-bold" {...props} />,
-                        em: ({node, ...props}) => <em className="text-neutral-600 italic" {...props} />,
-                      }}
+                <div className="space-y-4">
+                  {viewingGlossary.glossaryUrl.includes('application/pdf') && (
+                    <button 
+                      onClick={() => openOriginalFile(viewingGlossary.glossaryUrl)}
+                      className="sm:hidden w-full flex items-center justify-center gap-2 px-4 py-4 bg-blue-600 text-white rounded-2xl font-bold text-sm shadow-lg active:scale-95 transition-all"
                     >
-                      {glossaryContent || 'Nenhum conteúdo encontrado no glossário.'}
-                    </ReactMarkdown>
+                      <ExternalLink className="w-5 h-5" /> Abrir PDF Original
+                    </button>
+                  )}
+                  
+                  <div className="bg-white p-5 sm:p-8 rounded-2xl sm:rounded-3xl border border-neutral-100 shadow-sm overflow-hidden">
+                    <div className="markdown-body font-sans text-neutral-700 leading-relaxed break-words" translate="no">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm, remarkBreaks]}
+                        components={{
+                          h1: ({node, ...props}) => <h1 className="text-blue-700 font-bold text-2xl sm:text-3xl mb-6 border-b pb-2 border-blue-100" {...props} />,
+                          h2: ({node, ...props}) => <h2 className="text-emerald-700 font-bold text-xl sm:text-2xl mb-4 mt-8" {...props} />,
+                          h3: ({node, ...props}) => <h3 className="text-amber-700 font-bold text-lg sm:text-xl mb-3 mt-6" {...props} />,
+                          p: ({node, ...props}) => <p className="mb-6 last:mb-0 text-sm sm:text-base leading-relaxed" {...props} />,
+                          ul: ({node, ...props}) => <ul className="list-disc pl-5 sm:pl-8 mb-6 space-y-4 text-sm sm:text-base" {...props} />,
+                          ol: ({node, ...props}) => <ol className="list-decimal pl-5 sm:pl-8 mb-6 space-y-4 text-sm sm:text-base" {...props} />,
+                          li: ({node, ...props}) => <li className="text-neutral-700 leading-relaxed" {...props} />,
+                          blockquote: ({node, ...props}) => <blockquote className="border-left-4 border-neutral-200 pl-4 italic my-6 text-neutral-600" {...props} />,
+                          code: ({node, ...props}) => <code className="bg-neutral-100 px-1.5 py-0.5 rounded text-sm font-mono" {...props} />,
+                          strong: ({node, ...props}) => <strong className="text-neutral-900 font-bold" {...props} />,
+                          em: ({node, ...props}) => <em className="text-neutral-600 italic" {...props} />,
+                        }}
+                      >
+                        {glossaryContent || 'Nenhum conteúdo encontrado no glossário.'}
+                      </ReactMarkdown>
+                    </div>
                   </div>
                 </div>
               )}
